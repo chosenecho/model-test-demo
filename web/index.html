@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Test Demo</title>
+<style>
+  :root { --bg:#f7f7f8; --card:#fff; --line:#e5e5e5; --text:#1a1a1a; --muted:#888; --acc:#4c6ef5; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:16px; }
+  #skill { padding:6px 10px; border:1px solid var(--line); border-radius:8px; background:var(--card); font-size:13px; }
+  #userbox { margin-left:auto; font-size:13px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+  #loginBtn { padding:6px 12px; border:none; border-radius:8px; background:var(--acc); color:#fff; cursor:pointer; font-size:13px; }
+  main { flex:1; overflow-y:auto; padding:16px; }
+  .msg { max-width:760px; margin:0 auto 14px; display:flex; }
+  .msg.user { justify-content:flex-end; }
+  .bubble { padding:10px 14px; border-radius:12px; line-height:1.6; white-space:pre-wrap; word-break:break-word; max-width:80%; }
+  .msg.user .bubble { background:var(--acc); color:#fff; border-bottom-right-radius:4px; }
+  .msg.assistant .bubble { background:var(--card); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .bubble.err { color:#c0392b; }
+  footer { background:var(--card); border-top:1px solid var(--line); padding:12px 16px; }
+  .inputrow { max-width:760px; margin:0 auto; display:flex; gap:8px; }
+  #input { flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; resize:none; height:44px; font-family:inherit; }
+  #send { padding:0 20px; border:none; border-radius:10px; background:var(--acc); color:#fff; cursor:pointer; font-size:14px; }
+  #send:disabled { opacity:.5; cursor:not-allowed; }
+  dialog { border:1px solid var(--line); border-radius:12px; padding:24px; width:320px; }
+  dialog::backdrop { background:rgba(0,0,0,.4); }
+  dialog input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin:8px 0 16px; }
+  dialog button { padding:8px 16px; border:none; border-radius:8px; background:var(--acc); color:#fff; cursor:pointer; width:100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Model Test Demo</h1>
+  <select id="skill"></select>
+  <div id="userbox"><span id="quota"></span><button id="loginBtn">登录</button></div>
+</header>
+<main id="main"></main>
+<footer>
+  <div class="inputrow">
+    <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+    <button id="send">发送</button>
+  </div>
+</footer>
+
+<dialog id="loginDlg">
+  <h3>邀请码登录</h3>
+  <input id="code" placeholder="请输入邀请码">
+  <button id="loginGo">登录</button>
+</dialog>
+
+<script>
+const API_BASE = 'http://localhost:8787'; // 部署后改为 Worker 域名
+const $ = id => document.getElementById(id);
+
+let token = localStorage.getItem('token') || '';
+let skills = [];
+const history = []; // {role, content}
+
+// ---------- SSE 流式解析 ----------
+async function streamChat(messages, skillId, onDelta) {
+  const res = await fetch(API_BASE + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ messages, skill_id: skillId }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error || res.status);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') return;
+      try {
+        const j = JSON.parse(data);
+        const delta = j.choices?.[0]?.delta?.content;
+        if (delta) onDelta(delta);
+      } catch (_) {}
+    }
+  }
+}
+
+// ---------- UI ----------
+function bubble(role, text, cls) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const b = document.createElement('div');
+  b.className = 'bubble' + (cls ? ' ' + cls : '');
+  b.textContent = text;
+  div.appendChild(b);
+  $('main').appendChild(div);
+  $('main').scrollTop = 1e9;
+  return b;
+}
+
+async function refreshStatus() {
+  if (!token) { $('quota').textContent = ''; return; }
+  try {
+    const r = await (await fetch(API_BASE + '/api/me', { headers: { Authorization: 'Bearer ' + token } })).json();
+    if (r.error) { token = ''; localStorage.removeItem('token'); return; }
+    $('quota').textContent = (r.tier === 1 ? 'VIP' : '免费') + ` · 今日 ${r.quota.used}/${r.quota.limit}`;
+  } catch (_) {}
+}
+
+async function loadSkills() {
+  const h = token ? { Authorization: 'Bearer ' + token } : {};
+  const r = await (await fetch(API_BASE + '/api/skills', { headers: h })).json();
+  skills = r.skills || [];
+  $('skill').innerHTML = skills.map(s =>
+    `<option value="${s.id}">${s.name}${s.min_tier > 0 ? ' (VIP)' : ''}</option>`).join('');
+}
+
+async function send() {
+  const text = $('input').value.trim();
+  if (!text || !token) return;
+  $('input').value = '';
+  history.push({ role: 'user', content: text });
+  bubble('user', text);
+  const b = bubble('assistant', '');
+  $('send').disabled = true;
+  let acc = '';
+  try {
+    await streamChat(history, parseInt($('skill').value, 10) || undefined, d => {
+      acc += d; b.textContent = acc; $('main').scrollTop = 1e9;
+    });
+    history.push({ role: 'assistant', content: acc });
+  } catch (e) {
+    b.textContent = '出错了：' + e.message;
+    b.classList.add('err');
+    history.pop(); // 失败的消息不留在上下文里
+  }
+  $('send').disabled = false;
+  refreshStatus();
+}
+
+// ---------- 登录 ----------
+$('loginBtn').onclick = () => token ? (token = '', localStorage.removeItem('token'), location.reload()) : $('loginDlg').showModal();
+$('loginGo').onclick = async () => {
+  const code = $('code').value.trim();
+  if (!code) return;
+  const r = await (await fetch(API_BASE + '/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })).json();
+  if (r.error) { alert(r.error); return; }
+  token = r.token;
+  localStorage.setItem('token', token);
+  $('loginDlg').close();
+  location.reload();
+};
+
+$('input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$('send').onclick = send;
+
+refreshStatus();
+loadSkills();
+if (!token) bubble('assistant', '请先点击右上角「登录」，输入邀请码开始体验。');
+</script>
+</body>
+</html>

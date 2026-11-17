@@ -1,6 +1,6 @@
 # model-test-demo
 
-轻量的多用户模型能力展示站：用户在网页工作台中与固定几个模型对话，免费/VIP 分层控制可用模型，支持 Skill（预设提示词 + 工具组合），为后续 MCP 工具接入预留接口。
+轻量的多用户模型展示站：用户在网页工作台中与固定模型对话，支持 Skill（预设提示词 + 工具组合），为后续 MCP 工具接入预留接口。
 
 ## 架构
 
@@ -12,7 +12,6 @@ Cloudflare Pages ── web/ 静态前端（聊天工作台）
    ▼
 Cloudflare Worker ── worker/ 代理层
    ├─ 邀请码登录 → 签发 HMAC Token
-   ├─ VIP 等级 → 模型映射（用户不可自选模型）
    ├─ 每日配额（D1 计数）
    ├─ Skill 注入（system prompt + 工具白名单）
    └─ 注入 API Key，流式转发 DeepSeek API（SSE 透传）
@@ -38,7 +37,7 @@ DeepSeek API
 
 1. **阶段 0**：仓库骨架（本提交）
 2. **阶段 1**：前端工作台（聊天、流式输出、Skill 下拉、登录）
-3. **阶段 2**：Worker 代理（鉴权、VIP 模型映射、配额、流式转发）
+3. **阶段 2**：Worker 代理（鉴权、配额、流式转发）
 4. **阶段 3**：接入 DeepSeek 托管工具（web_search / read_url）
 5. **阶段 4**：MCP 工具循环（可选，Workflows）
 
@@ -66,7 +65,7 @@ wrangler secret put AUTH_SECRET        # Token 签名密钥（随机长字符串
 
 ```bash
 wrangler d1 execute model-test-demo-db --remote \
-  --command "INSERT INTO invite_codes (code, tier) VALUES ('demo-code', 1);"
+  --command "INSERT INTO invite_codes (code) VALUES ('demo-code');"
 ```
 
 ### 4. 部署 Worker
@@ -96,8 +95,8 @@ cd web && python3 -m http.server 8080
 ## 安全要点
 
 - API Key 只存在于 Worker secret，前端永不接触
-- 模型由 Worker 按用户等级强制映射，请求中的 model 字段会被覆盖
-- 每用户每日配额（默认免费 20 次/天，VIP 100 次/天），防刷
+- 模型由 Worker 统一配置，请求中的 model 字段会被覆盖
+- 每用户每日配额（默认 20 次/天），防刷
 - Token 为 HMAC 签名、带过期时间，无状态校验
 
 ## License

@@ -3,15 +3,11 @@ main = "src/index.js"
 compatibility_date = "2025-01-01"
 
 [vars]
-# 前端部署后把 Worker 域名同步给前端（前端也可写死在 web/index.html）
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
-# 模型映射（tier → model）：用户不可自选，由服务端强制覆盖
-# tier 0（免费）→ deepseek-chat；tier 1（VIP）→ deepseek-reasoner
-MODEL_TIER0 = "deepseek-chat"
-MODEL_TIER1 = "deepseek-reasoner"
-DAILY_QUOTA_TIER0 = "20"
-DAILY_QUOTA_TIER1 = "100"
+# 固定模型，所有用户统一（服务端强制覆盖，客户端不可自选）
+MODEL = "deepseek-chat"
+DAILY_QUOTA = "20"
 
 [[d1_databases]]
 binding = "DB"

@@ -1,4 +1,4 @@
-// model-test-demo Worker：鉴权 / VIP 模型映射 / 配额 / Skill 注入 / 流式转发
+// model-test-demo Worker：鉴权 / 配额 / Skill 注入 / 流式转发
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -53,8 +53,8 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function checkQuota(env, tokenId, tier) {
-  const limit = parseInt(tier === 1 ? env.DAILY_QUOTA_TIER1 : env.DAILY_QUOTA_TIER0, 10);
+async function checkQuota(env, tokenId) {
+  const limit = parseInt(env.DAILY_QUOTA, 10);
   const row = await env.DB
     .prepare('SELECT count FROM quota WHERE token_id = ? AND day = ?')
     .bind(tokenId, today()).first();
@@ -98,7 +98,7 @@ async function currentUser(request, env) {
   const tokenId = await verifyToken(env.AUTH_SECRET, bearer(request));
   if (!tokenId) return null;
   const user = await env.DB
-    .prepare('SELECT token_id, tier FROM users WHERE token_id = ?')
+    .prepare('SELECT token_id FROM users WHERE token_id = ?')
     .bind(tokenId).first();
   return user || null;
 }
@@ -108,37 +108,34 @@ async function login(request, env) {
   const { code } = await request.json();
   if (!code) return err('missing code');
   const invite = await env.DB
-    .prepare('SELECT code, tier, used_by FROM invite_codes WHERE code = ?')
+    .prepare('SELECT code, used_by FROM invite_codes WHERE code = ?')
     .bind(String(code).trim()).first();
   if (!invite) return err('invalid invite code', 401);
   if (invite.used_by) return err('invite code already used', 401);
 
   const tokenId = crypto.randomUUID();
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO users (token_id, tier) VALUES (?, ?)').bind(tokenId, invite.tier),
+    env.DB.prepare('INSERT INTO users (token_id) VALUES (?)').bind(tokenId),
     env.DB.prepare('UPDATE invite_codes SET used_by = ?, used_at = ? WHERE code = ?')
       .bind(tokenId, new Date().toISOString(), invite.code),
   ]);
 
   const token = await issueToken(env.AUTH_SECRET, tokenId, 30 * 24 * 3600);
-  return json({ token, tier: invite.tier });
+  return json({ token });
 }
 
-// GET /api/me → 用户等级 + 今日配额
+// GET /api/me → 今日配额
 async function me(request, env) {
   const user = await currentUser(request, env);
   if (!user) return err('unauthorized', 401);
-  const q = await checkQuota(env, user.token_id, user.tier);
-  return json({ tier: user.tier, quota: q });
+  const q = await checkQuota(env, user.token_id);
+  return json({ quota: q });
 }
 
-// GET /api/skills → 可见 Skill 列表（按等级过滤）
+// GET /api/skills → Skill 列表
 async function listSkills(request, env) {
-  const user = await currentUser(request, env);
-  const tier = user ? user.tier : 0;
   const { results } = await env.DB
-    .prepare('SELECT id, name, description, min_tier FROM skills WHERE min_tier <= ? ORDER BY id')
-    .bind(tier).all();
+    .prepare('SELECT id, name, description FROM skills ORDER BY id').all();
   return json({ skills: results });
 }
 
@@ -153,22 +150,20 @@ async function chat(request, env) {
   }
 
   // 配额
-  const q = await checkQuota(env, user.token_id, user.tier);
+  const q = await checkQuota(env, user.token_id);
   if (!q.ok) return err(`daily quota exceeded (${q.used}/${q.limit})`, 429);
 
-  // 模型：按等级强制映射，忽略客户端传入的任何 model
-  const model = user.tier === 1 ? env.MODEL_TIER1 : env.MODEL_TIER0;
+  // 模型：服务端固定，忽略客户端传入的任何 model
+  const model = env.MODEL;
 
   // Skill 注入
   let messages = body.messages;
   if (body.skill_id) {
     const skill = await env.DB
-      .prepare('SELECT system_prompt, min_tier FROM skills WHERE id = ?')
+      .prepare('SELECT system_prompt FROM skills WHERE id = ?')
       .bind(body.skill_id).first();
-    if (skill && user.tier >= skill.min_tier) {
+    if (skill) {
       messages = [{ role: 'system', content: skill.system_prompt }, ...messages];
-    } else if (skill) {
-      return err('skill requires higher tier', 403);
     }
   }
 

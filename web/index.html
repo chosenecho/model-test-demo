@@ -107,7 +107,7 @@ async function refreshStatus() {
   try {
     const r = await (await fetch(API_BASE + '/api/me', { headers: { Authorization: 'Bearer ' + token } })).json();
     if (r.error) { token = ''; localStorage.removeItem('token'); return; }
-    $('quota').textContent = (r.tier === 1 ? 'VIP' : '免费') + ` · 今日 ${r.quota.used}/${r.quota.limit}`;
+    $('quota').textContent = `今日 ${r.quota.used}/${r.quota.limit}`;
   } catch (_) {}
 }
 
@@ -116,7 +116,7 @@ async function loadSkills() {
   const r = await (await fetch(API_BASE + '/api/skills', { headers: h })).json();
   skills = r.skills || [];
   $('skill').innerHTML = skills.map(s =>
-    `<option value="${s.id}">${s.name}${s.min_tier > 0 ? ' (VIP)' : ''}</option>`).join('');
+    `<option value="${s.id}">${s.name}</option>`).join('');
 }
 
 async function send() {

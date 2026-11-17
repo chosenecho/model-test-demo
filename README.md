@@ -1,29 +1,28 @@
 # model-test-demo
 
-轻量的多用户模型展示站：用户在网页工作台中与固定模型对话，支持 Skill（预设提示词 + 工具组合），为后续 MCP 工具接入预留接口。
+轻量的多用户模型展示站：用户在网页工作台中与固定模型对话，前端基于 DeepSeek 官方开源的 [chat-demo](https://github.com/deepseek-ai/chat-demo) 改造（邀请码登录、API Key 服务端注入），为后续 MCP 工具接入预留接口。
 
 ## 架构
 
 ```
 用户浏览器
    ▼
-Cloudflare Pages ── web/ 静态前端（聊天工作台）
-   │  fetch /api/*
+Cloudflare Worker（https://aivmz.dpdns.org，单域名同源部署）
+   ├─ Workers Static Assets ── web/dist 静态前端（deepseek-ai/chat-demo 构建产物）
+   │    fetch 同源 /anthropic/v1/*、/v1/tools/*、/models、/api/*
+   ├─ /anthropic/v1/* 等透传：校验 HMAC Token → 注入 API Key → 强制覆盖 model
+   ├─ 邀请码登录 → 签发 30 天 HMAC Token（支持过期续签）
+   └─ 每日配额（D1 计数，按 /anthropic/v1/messages 调用计）
    ▼
-Cloudflare Worker ── worker/ 代理层
-   ├─ 邀请码登录 → 签发 HMAC Token
-   ├─ 每日配额（D1 计数）
-   ├─ Skill 注入（system prompt + 工具白名单）
-   └─ 注入 API Key，流式转发 DeepSeek API（SSE 透传）
-   ▼
-DeepSeek API
+DeepSeek API（Anthropic 兼容 Messages / Files / Tools 接口）
 ```
 
 ## 目录
 
 ```
-├── web/                # 静态前端（Pages 部署）
-│   └── index.html
+├── web/                # 前端（deepseek-ai/chat-demo 改造版源码）
+│   ├── src/            #   demo 源码（改动见下）
+│   └── dist/           #   构建产物（随 Worker Static Assets 部署）
 ├── worker/             # Cloudflare Worker 代理
 │   ├── wrangler.toml
 │   └── src/index.js
@@ -33,12 +32,23 @@ DeepSeek API
     └── architecture.md
 ```
 
+### 对 chat-demo 的改动
+
+- `rspack.config.ts`：`apiOrigin` 默认改为空串（同源请求，由本站 Worker 反代 DeepSeek API）
+- `src/services/api/client.ts`：`verifyApiKey` 改为 POST `/api/login`，用邀请码换取服务器签发的访问 Token（浏览器不接触 DeepSeek API Key）
+- `src/components/settings/useApiKeyForm.ts`：保存返回的 Token 而非原样保存输入
+- `src/i18n/{zh,en}.ts`：设置界面「API Key」文案改为「邀请码」
+
+### Skill 说明
+
+旧版手写前端的 Skill（预设提示词下拉）暂无入口；`skills` 表和 `/api/skills` 接口保留，chat-demo 的「深度思考 / 智能搜索」开关直接透传 DeepSeek 服务端工具参数。
+
 ## SOP（开发流程）
 
-1. **阶段 0**：仓库骨架（本提交）
-2. **阶段 1**：前端工作台（聊天、流式输出、Skill 下拉、登录）
+1. **阶段 0**：仓库骨架
+2. **阶段 1**：前端工作台（现为 chat-demo 集成）
 3. **阶段 2**：Worker 代理（鉴权、配额、流式转发）
-4. **阶段 3**：接入 DeepSeek 托管工具（web_search / read_url）
+4. **阶段 3**：接入 DeepSeek 托管工具（web_search / read_url，chat-demo 已带前端解析）
 5. **阶段 4**：MCP 工具循环（可选，Workflows）
 
 每阶段：`wrangler dev` 本地验证 → 部署 → 浏览器冒烟 → commit。
@@ -49,7 +59,7 @@ DeepSeek API
 
 ```bash
 cd worker
-wrangler d1 create model-test-demo
+wrangler d1 create model-test-demo-db
 # 把返回的 database_id 填入 wrangler.toml
 wrangler d1 execute model-test-demo-db --file ../db/schema.sql --remote
 ```
@@ -65,31 +75,23 @@ wrangler secret put AUTH_SECRET        # Token 签名密钥（随机长字符串
 
 ```bash
 wrangler d1 execute model-test-demo-db --remote \
-  --command "INSERT INTO invite_codes (code) VALUES ('demo-code');"
+  --command "INSERT INTO invite_codes (code) VALUES ('your-code');"
 ```
 
-### 4. 部署 Worker
+### 4. 构建前端并部署（静态资产 + API 同域）
 
 ```bash
-wrangler deploy
+cd ../web && pnpm install && pnpm build
+cd ../worker && wrangler deploy
 ```
 
-### 5. 部署前端
-
-```bash
-cd ../web
-wrangler pages deploy . --project-name model-test-demo
-```
-
-在 Pages 项目设置里把 `API_BASE` 环境变量指向 Worker 域名（或直接改 `web/index.html` 顶部的 `API_BASE` 常量）。
+模型由 `wrangler.toml` 的 `MODEL` 统一配置（当前 `deepseek-flash`），请求中的 model 字段一律被服务端覆盖。
 
 ## 本地开发
 
 ```bash
-cd worker && wrangler dev      # 默认 http://localhost:8787
-# 另开终端
-cd web && python3 -m http.server 8080
-# 打开 http://localhost:8080，API_BASE 填 http://localhost:8787
+cd web && pnpm install && pnpm build   # 前端构建到 web/dist
+cd ../worker && wrangler dev           # http://localhost:8787，静态页面 + API 同源
 ```
 
 ## 安全要点
@@ -97,7 +99,7 @@ cd web && python3 -m http.server 8080
 - API Key 只存在于 Worker secret，前端永不接触
 - 模型由 Worker 统一配置，请求中的 model 字段会被覆盖
 - 每用户每日配额（默认 20 次/天），防刷
-- Token 为 HMAC 签名、带过期时间，无状态校验
+- Token 为 HMAC 签名、带过期时间，无状态校验；过期后可凭原邀请码 + 旧 Token 续签
 
 ## License
 

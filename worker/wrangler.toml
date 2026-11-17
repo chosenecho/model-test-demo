@@ -2,14 +2,25 @@ name = "model-test-demo"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+# 自定义域名：整站（静态前端 + /api/*）同域部署
+routes = [
+  { pattern = "aivmz.dpdns.org", custom_domain = true }
+]
+
+# 静态前端（deepseek-ai/chat-demo 构建产物）随 Worker 一起部署，API 路径先走 Worker
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/anthropic/*", "/v1/tools/*", "/models"]
+
 [vars]
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 # 固定模型，所有用户统一（服务端强制覆盖，客户端不可自选）
-MODEL = "deepseek-chat"
+MODEL = "deepseek-flash"
 DAILY_QUOTA = "20"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "model-test-demo-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "af16a4fb-ed3d-42e3-8a3c-c0f26b84187d"

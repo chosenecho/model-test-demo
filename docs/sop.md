@@ -8,7 +8,7 @@
 - Cloudflare 账号：`d04b802998edb84eaa3d83a2feac85a3`（chosenecho@163.com）
 - 线上版本与回滚目标见[运维变更记录](CHANGELOG-ops.md)。
 
-当前生产基线已部署 Firecrawl MCP 智能搜索，但功能仍关闭，不会回退到 `deepseek_web_search`。普通对话保留 DeepSeek 的链接阅读工具 `deepseek_read_url`。搜索计数使用 [Firecrawl 迁移](../db/firecrawl.sql)创建的 `firecrawl_search_attempts`。配置凭据、验收和启用试用账号按[智能搜索与行业分析师开发及上线 SOP](chat-feature-sop.md)执行。
+当前生产基线已部署 Firecrawl MCP 智能搜索与「行业分析师」，两个开关对新用户默认关闭，用户可在页面自行开启。搜索不走 `deepseek_web_search`；普通对话保留 DeepSeek 的链接阅读工具 `deepseek_read_url`。搜索计数存在 `firecrawl_search_attempts`，额度按用户每天 200 次，建表见 [Firecrawl 迁移](../db/firecrawl.sql)，已建库升级见[按用户额度迁移](../db/firecrawl-peruser.sql)。配置凭据、验收和开关操作按[智能搜索与行业分析师开发及上线 SOP](chat-feature-sop.md)执行。
 
 ---
 

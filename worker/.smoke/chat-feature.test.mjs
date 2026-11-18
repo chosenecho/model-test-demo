@@ -5,6 +5,8 @@ import { test } from 'node:test';
 import worker from '../src/index.js';
 import { issueSession, reserve, reserveContinuation, settle } from '../src/core.js';
 
+const USER = 'tester-0000-4000-8000-000000000000';
+
 function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of ['schema-v2.sql', 'quota.sql', 'hardening.sql', 'firecrawl.sql']) {
@@ -75,8 +77,8 @@ test('authenticated Worker search, Skill, and duplicate settlement', async (t) =
     FIRECRAWL_API_KEY: 'fc-fixtureonlyvalue', MODEL: 'deepseek-flash',
     CHAT_FIRECRAWL_ENABLED: 'true', CHAT_INDUSTRY_ANALYST_ENABLED: 'true',
   };
-  sqlite.prepare('INSERT INTO users(token_id, created_at, last_seen_at) VALUES (?, ?, ?)').run('tester', 1, 1);
-  const { token } = await issueSession(env, 'tester', 60_000);
+  sqlite.prepare('INSERT INTO users(token_id, created_at, last_seen_at) VALUES (?, ?, ?)').run(USER, 1, 1);
+  const { token } = await issueSession(env, USER, 60_000);
   const models = [];
   let searches = 0;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -138,7 +140,7 @@ test('authenticated Worker search, Skill, and duplicate settlement', async (t) =
   await Promise.all(jobs);
   assert.doesNotMatch(models[2].system, /行业分析师|untrusted instructions/);
   assert.equal(searches, 1);
-  const billing = { requestId: 'concurrent-settle', userId: 'tester', route: '/anthropic/v1/messages', amountMicro: 100 };
+  const billing = { requestId: 'concurrent-settle', userId: USER, route: '/anthropic/v1/messages', amountMicro: 100 };
   assert.equal((await reserve(env, billing)).ok, true);
   assert.equal(await reserveContinuation(env, billing.requestId, billing.userId, 100), true);
   const settlements = await Promise.all([settle(env, billing), settle(env, billing)]);
@@ -169,8 +171,8 @@ test('Worker answers from results after the per-turn search budget runs out', { 
     DB, DEEPSEEK_BASE_URL: 'https://model.example.com', DEEPSEEK_API_KEY: '{{SECRET_9ncmfwce}}',
     FIRECRAWL_API_KEY: '{{SECRET_kcfmntwt}}', MODEL: 'deepseek-flash', CHAT_FIRECRAWL_ENABLED: 'true',
   };
-  sqlite.prepare('INSERT INTO users(token_id, created_at, last_seen_at) VALUES (?, ?, ?)').run('tester', 1, 1);
-  const { token } = await issueSession(env, 'tester', 60_000);
+  sqlite.prepare('INSERT INTO users(token_id, created_at, last_seen_at) VALUES (?, ?, ?)').run(USER, 1, 1);
+  const { token } = await issueSession(env, USER, 60_000);
   const bodies = [];
   const queries = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -219,8 +221,8 @@ for (const scenario of ['empty', 'auth-failure', 'stop']) {
       MODEL: 'deepseek-flash',
       CHAT_FIRECRAWL_ENABLED: 'true',
     };
-    sqlite.prepare('INSERT INTO users(token_id, created_at, last_seen_at) VALUES (?, ?, ?)').run('tester', 1, 1);
-    const { token } = await issueSession(env, 'tester', 60_000);
+    sqlite.prepare('INSERT INTO users(token_id, created_at, last_seen_at) VALUES (?, ?, ?)').run(USER, 1, 1);
+    const { token } = await issueSession(env, USER, 60_000);
     const requestId = `search-${scenario}`;
     const jobs = [];
     const modelBodies = [];

@@ -29,7 +29,8 @@ const DB = {
 };
 
 const env = { DB, FIRECRAWL_API_KEY: process.env.FC_KEY };
-const outcome = await searchFirecrawl(env, 'Cloudflare Workers fetch redirect manual', AbortSignal.timeout(45_000));
+const userId = process.env.FC_USER_ID ?? 'local-live-probe';
+const outcome = await searchFirecrawl(env, userId, 'Cloudflare Workers fetch redirect manual', AbortSignal.timeout(45_000));
 const summary = {
   status: outcome.status,
   code: outcome.code ?? null,

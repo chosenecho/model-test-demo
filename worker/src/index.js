@@ -772,7 +772,7 @@ async function proxyMessages({ request, env, ctx }) {
       abort,
       fetchModel,
       async search(query, signal) {
-        const result = await searchFirecrawl(env, query, signal);
+        const result = await searchFirecrawl(env, whoIdent.userId, query, signal);
         log('info', 'chat-search-outcome', { requestId, status: result.status, code: result.code });
         return result;
       },

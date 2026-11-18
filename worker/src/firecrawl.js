@@ -13,10 +13,12 @@ const HK_DATE = new Intl.DateTimeFormat('en-CA', {
 });
 
 // The count and write execute as one SQLite statement against the D1 primary.
-const RESERVE = `INSERT INTO firecrawl_search_attempts (hk_day, attempt_id)
-  SELECT ?1, ?2
-  WHERE (SELECT COUNT(*) FROM firecrawl_search_attempts WHERE hk_day = ?1) < ?3`;
-const RELEASE = 'DELETE FROM firecrawl_search_attempts WHERE hk_day = ?1 AND attempt_id = ?2';
+// 额度按用户计算：只统计同一 user_id 当天的行。
+const RESERVE = `INSERT INTO firecrawl_search_attempts (user_id, hk_day, attempt_id)
+  SELECT ?4, ?1, ?2
+  WHERE (SELECT COUNT(*) FROM firecrawl_search_attempts WHERE user_id = ?4 AND hk_day = ?1) < ?3`;
+const RELEASE = `DELETE FROM firecrawl_search_attempts
+  WHERE user_id = ?3 AND hk_day = ?1 AND attempt_id = ?2`;
 
 function hkDay() {
   const parts = HK_DATE.formatToParts(Date.now());
@@ -27,14 +29,14 @@ function failure(code) {
   return { status: 'error', code };
 }
 
-async function reserve(db, day, id) {
-  const { success, meta } = await db.prepare(RESERVE).bind(day, id, DAILY_CAP).run();
+async function reserve(db, day, id, userId) {
+  const { success, meta } = await db.prepare(RESERVE).bind(day, id, DAILY_CAP, userId).run();
   if (!success || (meta?.changes !== 0 && meta?.changes !== 1)) throw new Error();
   return meta.changes === 1;
 }
 
-async function release(db, day, id) {
-  const { success } = await db.prepare(RELEASE).bind(day, id).run();
+async function release(db, day, id, userId) {
+  const { success } = await db.prepare(RELEASE).bind(day, id, userId).run();
   if (!success) throw new Error();
 }
 
@@ -208,8 +210,8 @@ function webResults(message, key) {
   return results;
 }
 
-/** Search through the hosted Firecrawl MCP endpoint using the shared D1 allocation. */
-export async function searchFirecrawl(env, query, signal) {
+/** Search through the hosted Firecrawl MCP endpoint using the caller's own daily D1 allocation. */
+export async function searchFirecrawl(env, userId, query, signal) {
   const startedAt = Date.now();
   // Telemetry carries fixed fields only: never the query, a URL, a header or an upstream body.
   const done = outcome => {
@@ -220,6 +222,7 @@ export async function searchFirecrawl(env, query, signal) {
     return outcome;
   };
   if (typeof query !== 'string' || query.length > MAX_QUERY_CHARS || !query.trim()) return done(failure('invalid_query'));
+  if (typeof userId !== 'string' || !/^[\w.:-]{8,64}$/.test(userId)) return done(failure('unavailable'));
   if (signal?.aborted) return done(failure('aborted'));
   const key = env?.FIRECRAWL_API_KEY;
   const db = env?.DB;
@@ -254,7 +257,7 @@ export async function searchFirecrawl(env, query, signal) {
       errorCode = 'quota_unavailable';
       // Keep the ID available for cleanup if D1 commits but the response is lost.
       reservationDay = day;
-      if (!await reserve(db, day, id)) {
+      if (!await reserve(db, day, id, userId)) {
         reservationDay = undefined;
         if (hkDay() !== day) continue;
         if (controller.signal.aborted) break;
@@ -269,7 +272,7 @@ export async function searchFirecrawl(env, query, signal) {
       if (controller.signal.aborted) break;
       if (hkDay() !== day) {
         errorCode = 'quota_unavailable';
-        await release(db, day, id);
+        await release(db, day, id, userId);
         reservationDay = undefined;
         continue;
       }
@@ -287,7 +290,7 @@ export async function searchFirecrawl(env, query, signal) {
   } finally {
     if (reservationDay && !dispatched) {
       // Deleting by unique ID is idempotent and cannot refund another attempt.
-      await release(db, reservationDay, id).catch(() => {});
+      await release(db, reservationDay, id, userId).catch(() => {});
     }
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);

@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-18 16:45 · 搜索额度改为按用户计
+
+- 每日 200 次从「全站共享」改为「每位用户各自 200 次」。额度仍按香港时间自然日切分，其他用户的调用不再占用自己的名额。
+- 迁移：[db/firecrawl-peruser.sql](../db/firecrawl-peruser.sql) 给 `firecrawl_search_attempts` 加 `user_id` 列和 `(user_id, hk_day)` 索引，生产和测试库各执行一次（2 条语句）。迁移前遗留的计数行 `user_id` 为空，不再计入任何用户，生产上有 2 行。
+- 代码：[firecrawl.js](../worker/src/firecrawl.js) 按 `user_id` 做原子预占与释放，`searchFirecrawl` 从 Worker 接收当前登录用户；缺少有效用户标识时直接跳过搜索。
+- 测试：新增「用户 A 满额不影响用户 B」用例，`worker/.smoke` 共 21 项通过；workerd 运行时用例改为只把主账号顶到上限，验证 A 收到额度提示、B 仍能搜索。
+- 验收：生产版本 `ff7ae66d-6f34-4764-885f-fd13874cd14f`，用临时账号跑真实检索，一轮两次检索、4 个来源、用量 `settled`、扣费流水 1 行，计数记在该账号名下。验收会话已注销、邀请码已过期。
+
+---
+
 ## 2026-11-18 14:34 · 真实 Firecrawl 验收与试用发布
 
 - 测试站写入真实的 `FIRECRAWL_API_KEY`。用[真实 MCP 探测脚本](../worker/.smoke/firecrawl-live.mjs)确认 MCP 握手、鉴权和 `firecrawl_search` 返回，一次查询返回 5 条公开结果。
@@ -11,7 +21,7 @@
 - 测试站真实链路 `live-search-efb089a405ab`：两次检索、10 条结果，正文按摘要作答并逐条标注来源，响应中无密钥；用量 `settled|1232|789|200`，额度流水 1 行。验收版本 `656d6bea-690b-4213-b2cc-6aff077f9972`，随后部署关闭开关的 `88fab523-6923-4ebc-b4d2-46494a7fdfd2`。
 - 生产站写入 `FIRECRAWL_API_KEY`，部署 `b9cf8bf1-20c4-43bf-8041-327fdc6165c1`（两个开关关闭）作为回滚基线。对验收账号启用后 `prod-live-4a8fbc759eec`：两次检索、来源可追溯、无密钥，用量 `settled|1279|798|200`，额度流水 1 行，版本 `4cdb79f9-8129-4793-82d8-8f9e144d113c`。
 - 试用发布：`8deadad0-2e69-4dfe-9f06-b8dfd9c24fe8` 对全部用户开放两个功能，开关仍在页面上默认关闭。新账号复核 `chat_features {industry_analyst:true, smart_search:true}`，普通对话仍返回 200 且不触发搜索。临时邀请码已过期，验收会话已注销。
-- 搜索额度维持全站共享每日 200 次、按香港日期切分。该密钥在本会话出现过明文，建议在 Firecrawl 控制台轮换后重写 Secret。
+- 搜索额度为每位用户每天 200 次、按香港日期切分。该密钥在本会话出现过明文，建议在 Firecrawl 控制台轮换后重写 Secret。
 - 代码经 [PR #1](https://github.com/chosenecho/model-test-demo/pull/1) 合并到 `main`（`37284c8`）。由合并后的 `main` 重新部署生产版本 `d0b57492-92f9-4f14-990c-8327fd7e7db6`，开关状态同时写入 `wrangler.toml`（`ce8b986`），避免普通部署把功能关掉。部署后复核：首页 200、未登录 401、新账号 `chat_features` 两项为真。
 
 ---
@@ -29,7 +39,7 @@
 - 仅向测试账号启用「行业分析师」。普通对话与启用 Skill 的对话都从真实 DeepSeek 收到完整 SSE，启用时返回 `industry-analyst@1`。两个请求 `stage-skill-a46bdfba-19cd-4fe7-aff8-c497db2830fe` 和 `stage-skill-8d5403a6-b8bc-4bf0-9179-2bf3b701158b` 各结算一次，搜索计数为 0。
 - 测试 Worker 从 `f540f8f2-5e96-4c7c-a6dd-02cb33e0ec35` 回滚到 `e564b96f-6b49-481b-bdf6-24a4f28f94b5`。已核对两个功能均关闭，并注销验收会话、过期临时邀请码。
 - 对测试站前端使用模拟 API 做浏览器验收。Skill 默认关闭，开启后随回复保存版本。刷新页面后恢复原会话设置，全新的浏览器环境也能通过会话同步恢复。
-- [Workers 运行时测试](../worker/.smoke/chat-runtime.cjs)用模拟上游验证搜索续轮、结算和重定向。将本地 D1 当日计数预置为 199 后，两名测试用户并发只发出一次搜索调用，计数停在 200。另一名用户收到额度提示，仍能获得完整回复。
+- [Workers 运行时测试](../worker/.smoke/chat-runtime.cjs)用模拟上游验证搜索续轮、结算和重定向。把本地 D1 中主账号当日计数预置为上限后，该账号收到额度提示，另一个账号仍能正常搜索并获得完整回复。当时额度还是全站共享，现已改为按用户计。
 - 真实搜索仍待测试 Worker 配置 `FIRECRAWL_API_KEY`。操作见[开发及上线 SOP](chat-feature-sop.md#1-准备环境)。
 
 ---

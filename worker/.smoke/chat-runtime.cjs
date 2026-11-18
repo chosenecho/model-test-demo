@@ -109,9 +109,11 @@ test('workerd handles chat, MCP continuations, quota exhaustion and redirects', 
     assert.equal(login.status, 200);
     const cookieHeader = login.headers.get('Set-Cookie');
     assert.match(cookieHeader, /HttpOnly/i);
-    return cookieHeader.split(';')[0];
+    const body = await login.json();
+    assert.match(body.user.id, /^[0-9a-f-]{36}$/);
+    return { cookie: cookieHeader.split(';')[0], userId: body.user.id };
   };
-  const cookie = await loginWithInvite('runtime-smoke-invite');
+  const { cookie, userId: mainUserId } = await loginWithInvite('runtime-smoke-invite');
   const account = await request('/api/me', { headers: { Cookie: cookie } });
   assert.equal(account.status, 200);
   assert.deepEqual((await account.json()).chat_features, { industry_analyst: true, smart_search: true });
@@ -151,16 +153,19 @@ test('workerd handles chat, MCP continuations, quota exhaustion and redirects', 
   assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM firecrawl_search_attempts').first('n'), 1);
   assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM quota_ledger WHERE request_id = ?').bind('runtime-search').first('n'), 1);
 
-  const peerCookie = await loginWithInvite('runtime-smoke-peer');
+  const peer = await loginWithInvite('runtime-smoke-peer');
+  const peerCookie = peer.cookie;
   const day = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // 额度按用户计：只把主账号的当日计数顶到上限，另一账号仍有自己的 200 次。
   const seedAttempts = db.prepare(`WITH RECURSIVE attempts(n) AS (
-    SELECT 1 UNION ALL SELECT n + 1 FROM attempts WHERE n < 199
-  ) INSERT INTO firecrawl_search_attempts (hk_day, attempt_id)
-    SELECT ?, 'seed-' || n FROM attempts
-    WHERE n <= 199 - (SELECT COUNT(*) FROM firecrawl_search_attempts WHERE hk_day = ?)`);
-  await seedAttempts.bind(day, day).run();
-  const countForDay = () => db.prepare('SELECT COUNT(*) AS n FROM firecrawl_search_attempts WHERE hk_day = ?').bind(day).first('n');
-  assert.equal(await countForDay(), 199);
+    SELECT 1 UNION ALL SELECT n + 1 FROM attempts WHERE n < 200
+  ) INSERT INTO firecrawl_search_attempts (user_id, hk_day, attempt_id)
+    SELECT ?, ?, 'seed-' || n FROM attempts
+    WHERE n <= 200 - (SELECT COUNT(*) FROM firecrawl_search_attempts WHERE user_id = ? AND hk_day = ?)`);
+  await seedAttempts.bind(mainUserId, day, mainUserId, day).run();
+  const countFor = (userId) => db.prepare('SELECT COUNT(*) AS n FROM firecrawl_search_attempts WHERE user_id = ? AND hk_day = ?').bind(userId, day).first('n');
+  assert.equal(await countFor(mainUserId), 200);
+  assert.equal(await countFor(peer.userId), 0);
   const competing = await Promise.all([
     chat('runtime-quota-a', 'search', searchFlags),
     chat('runtime-quota-b', 'search', searchFlags, peerCookie),
@@ -174,7 +179,8 @@ test('workerd handles chat, MCP continuations, quota exhaustion and redirects', 
   assert.equal(streams.filter((result) => result.includes('quota_exhausted')).length, 1);
   assert.equal(streams.filter((result) => result.includes(reference)).length, 1);
   assert.equal(searchCalls, 2);
-  assert.equal(await countForDay(), 200);
+  assert.equal(await countFor(mainUserId), 200);
+  assert.equal(await countFor(peer.userId), 1);
   const fallback = await chat('runtime-after-quota', 'hello', {}, peerCookie);
   assert.equal(fallback.status, 200);
   assert.match(await fallback.text(), /event: message_stop/);

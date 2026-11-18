@@ -10,6 +10,8 @@ const hkTomorrow = '2026-11-19';
 const beforeMidnight = Date.parse('2026-11-18T15:59:59.999Z');
 const key = 'fc-EXAMPLE_TEST_ONLY';
 const url = 'https://example.org/reference';
+const USER = '6f1f2c90-0000-4000-8000-000000000001';
+const OTHER_USER = '6f1f2c90-0000-4000-8000-000000000002';
 
 function fixture(t, { afterReserve, searchReply, initializeReply, onReady, now = beforeMidnight } = {}) {
   const sqlite = new DatabaseSync(':memory:');
@@ -68,12 +70,12 @@ function fixture(t, { afterReserve, searchReply, initializeReply, onReady, now =
     calls,
     env: { DB: db, FIRECRAWL_API_KEY: key },
     setTime(value) { now = value; },
-    seed(day, count) {
-      const insert = sqlite.prepare('INSERT INTO firecrawl_search_attempts VALUES (?, ?)');
-      for (let i = 0; i < count; i++) insert.run(day, `seed-${i}`);
+    seed(day, count, userId = USER) {
+      const insert = sqlite.prepare('INSERT INTO firecrawl_search_attempts (user_id, hk_day, attempt_id) VALUES (?, ?, ?)');
+      for (let i = 0; i < count; i++) insert.run(userId, day, `seed-${userId}-${i}`);
     },
-    count(day) {
-      return sqlite.prepare('SELECT COUNT(*) AS total FROM firecrawl_search_attempts WHERE hk_day = ?').get(day).total;
+    count(day, userId = USER) {
+      return sqlite.prepare('SELECT COUNT(*) AS total FROM firecrawl_search_attempts WHERE user_id = ? AND hk_day = ?').get(userId, day).total;
     },
   };
 }
@@ -86,18 +88,21 @@ function structured(web) {
   return { structuredContent: { success: true, data: { web } } };
 }
 
-function search(env, signal) {
-  return searchFirecrawl(env, '  documentation  ', signal);
+function search(env, signal, userId = USER) {
+  return searchFirecrawl(env, userId, '  documentation  ', signal);
 }
 
 test('validates query, cancellation and Worker bindings before reserving or fetching', async t => {
   const f = fixture(t);
   const aborted = AbortSignal.abort('private abort reason');
   for (const query of [null, '', '   ', 'x'.repeat(513), `look up ${key}`]) {
-    assert.deepEqual(await searchFirecrawl(f.env, query), { status: 'error', code: 'invalid_query' });
+    assert.deepEqual(await searchFirecrawl(f.env, USER, query), { status: 'error', code: 'invalid_query' });
   }
   assert.deepEqual(await search(f.env, aborted), { status: 'error', code: 'aborted' });
   assert.deepEqual(await search({ DB: f.env.DB }), { status: 'error', code: 'unavailable' });
+  for (const userId of [undefined, '', 'short', 'x'.repeat(65), 'bad id\n']) {
+    assert.deepEqual(await searchFirecrawl(f.env, userId, 'documentation'), { status: 'error', code: 'unavailable' });
+  }
   assert.equal(f.count(hkToday), 0);
   assert.deepEqual(f.calls, []);
 });
@@ -154,6 +159,18 @@ test('an atomic D1 statement allows only one of two requests at 199', async t =>
   assert.deepEqual(results.map(result => result.status).sort(), ['ok', 'quota']);
   assert.equal(f.count(hkToday), 200);
   assert.deepEqual(f.calls, ['initialize', 'notifications/initialized', 'tools/call']);
+});
+
+test('the daily cap applies per user, not to the whole project', async t => {
+  const f = fixture(t);
+  f.seed(hkToday, 199);
+  assert.deepEqual(await search(f.env), { status: 'ok', results: [] });
+  assert.deepEqual(await search(f.env), { status: 'quota' });
+  assert.equal(f.count(hkToday), 200);
+  assert.equal(f.count(hkToday, OTHER_USER), 0);
+  assert.deepEqual(await search(f.env, undefined, OTHER_USER), { status: 'ok', results: [] });
+  assert.equal(f.count(hkToday, OTHER_USER), 1);
+  assert.equal(f.count(hkToday), 200);
 });
 
 test('releases an unsent reservation after MCP initialization fails', async t => {

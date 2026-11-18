@@ -4,3 +4,10 @@ node_modules/
 /dist/
 .DS_Store
 *.log
+
+# 邀请码明文与库备份：只留在本机，不入库
+db/invite-codes-*.txt
+db/backup-*.sql
+
+# 架构图产出留在本机
+.archify/

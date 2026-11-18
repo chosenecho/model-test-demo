@@ -48,9 +48,9 @@ export type ServerToolUseBlock = {
   /** srvtoolu_{s|ds|rl|is|dis}_{序号}_{32 位 hex} */
   id: string
   /** 文字搜索与图搜均为 deepseek_web_search；read_link 为 deepseek_read_url */
-  name: 'deepseek_web_search' | 'deepseek_read_url'
+  name: 'deepseek_web_search' | 'deepseek_read_url' | 'firecrawl_search'
   input: ServerToolInput
-  caller: { type: 'direct' }
+  caller?: { type: 'direct' }
   kind: ServerToolKind
 }
 
@@ -61,20 +61,19 @@ export type WebSearchResult = {
   /** 图搜召回的原站图片地址，可能缺省；仅保存，当前不展示图片。 */
   image_url?: string
   /** 可直接展示的网页摘要 */
-  snippet: string
-  /** 站点图标 URL；无法取得注册域名时为 null */
-  site_icon: string | null
-  /** 无站点名称时为 null */
-  site_name: string | null
-  /** 搜索摘要经 AES-256-GCM 加密后的 Base64，客户端无法解密展示 */
-  encrypted_content: string
-  /** RFC 3339 UTC 时间，没有发布时间时为 null */
-  page_age: string | null
+  snippet?: string | null
+  /** 以下扩展元数据可能仅由旧版托管搜索提供。 */
+  site_icon?: string | null
+  site_name?: string | null
+  encrypted_content?: string
+  /** RFC 3339 UTC 时间 */
+  page_age?: string | null
 }
 
 export type WebSearchToolResultError = {
   type: 'web_search_tool_result_error'
-  error_code: 'unavailable'
+  /** Common codes: unavailable, quota_exhausted, no_results, tool_limit. */
+  error_code: string
 }
 
 export type WebSearchToolResultBlock = {
@@ -175,6 +174,9 @@ export type DeepseekReadUrlTool = {
 export type CreateMessageRequest = {
   model: ChatModel
   system: string
+  /** 应用开关，由 Worker 消费。 */
+  industry_analyst: boolean
+  smart_search: boolean
   messages: MessageParam[]
   thinking: { type: 'enabled' | 'disabled' }
   tools: (DeepseekWebSearchTool | DeepseekReadUrlTool)[]

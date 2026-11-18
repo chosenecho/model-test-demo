@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useTranslate } from '../i18n/index.js'
-import { useSettings } from '../services/settings.js'
+import { me } from '../services/api/client.js'
+import { setSessionExpiresAt, useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
 import {
   bindChatPersistence,
@@ -30,6 +31,7 @@ export const App = () => {
   const t = useTranslate()
   const isMobile = useIsMobile()
   const locale = useSettings((state) => state.locale)
+  const sessionExpiresAt = useSettings((state) => state.sessionExpiresAt)
   // 移动端侧边栏以独立抽屉管理开合状态
   const siderCollapsed = useSettings((state) => state.siderCollapsed) && !isMobile
   const ready = useChatStore((state) => state.ready)
@@ -60,6 +62,41 @@ export const App = () => {
   useEffect(() => onUploadNotice(showToast), [])
   useEffect(bindChatPersistence, [])
 
+  useEffect(() => {
+    if (sessionExpiresAt === null) {
+      return
+    }
+    const controller = new AbortController()
+    let refreshing = false
+    const refresh = async () => {
+      if (refreshing) {
+        return
+      }
+      refreshing = true
+      try {
+        const current = await me(controller.signal)
+        if (controller.signal.aborted || useSettings.getState().sessionExpiresAt !== sessionExpiresAt) {
+          return
+        }
+        if (current) {
+          useSettings.setState({ chatFeatures: current.chat_features })
+        } else {
+          setSessionExpiresAt(null)
+        }
+      } catch {
+        // 网络错误时保留本次会话最近一次确认的可用性，窗口重新获焦时重试。
+      } finally {
+        refreshing = false
+      }
+    }
+    void refresh()
+    window.addEventListener('focus', refresh)
+    return () => {
+      controller.abort()
+      window.removeEventListener('focus', refresh)
+    }
+  }, [sessionExpiresAt])
+
   // 搜索结果面板只属于当前会话
   useEffect(closeSearchPanel, [activeId])
   // 切换会话时停止朗读
@@ -69,7 +106,7 @@ export const App = () => {
 
   useEffect(() => {
     void initChat()
-    // 首次打开先在设置里输入 API Key
+    // 首次打开先在设置里输入邀请码
     ensureApiKey()
   }, [])
 

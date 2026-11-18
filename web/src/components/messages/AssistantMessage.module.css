@@ -92,6 +92,18 @@
   padding-bottom: 10px;
 }
 
+.skill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 100px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-markdown-small);
+  white-space: nowrap;
+}
+
 .actions {
   display: flex;
   align-items: center;

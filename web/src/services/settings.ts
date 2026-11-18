@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { ChatFeatures } from './api/client.js'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
@@ -7,9 +8,12 @@ export type Locale = 'zh-CN' | 'en-US'
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-/** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
+/** 本机设置，存 localStorage：会话到期时间、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态（凭证本身在 HttpOnly Cookie 里） */
 type Settings = {
-  apiKey: string | null
+  /** 本地缓存的会话到期时间（毫秒）。凭证本身在 HttpOnly Cookie 里，前端读不到也不需要读 */
+  sessionExpiresAt: number | null
+  /** 当前账号的功能可用性，仅保存在内存。 */
+  chatFeatures: ChatFeatures | null
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
@@ -20,7 +24,7 @@ type Settings = {
 }
 
 const KEYS = {
-  apiKey: 'chat-demo:api-key',
+  sessionExpiresAt: 'chat-demo:session-expires-at',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
@@ -47,6 +51,15 @@ const write = (key: string, value: string | null) => {
     }
   } catch {
     // 存储不可用时只在内存中生效
+  }
+}
+
+/** 旧版本把可用凭证明文存在 localStorage（chat-demo:api-key）；升级后必须清掉 */
+const LEGACY_SECRET_KEYS = ['chat-demo:api-key', 'chat-demo:token']
+
+export const purgeLegacyCredentials = () => {
+  for (const key of LEGACY_SECRET_KEYS) {
+    write(key, null)
   }
 }
 
@@ -87,8 +100,12 @@ const initialThemePreference = (): ThemePreference => {
 /** 未保存过时使用服务端默认音色 stella（海星） */
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
+// 旧版本把凭证明文存在 localStorage：加载即清掉，之后只留会话到期时间
+purgeLegacyCredentials()
+
 export const useSettings = create<Settings>(() => ({
-  apiKey: read(KEYS.apiKey),
+  sessionExpiresAt: Number(read(KEYS.sessionExpiresAt)) || null,
+  chatFeatures: null,
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
@@ -119,9 +136,12 @@ export const setTtsVoice = (ttsVoice: TtsVoice) => {
   useSettings.setState({ ttsVoice })
 }
 
-export const setApiKey = (apiKey: string | null) => {
-  write(KEYS.apiKey, apiKey)
-  useSettings.setState({ apiKey })
+export const setSessionExpiresAt = (sessionExpiresAt: number | null) => {
+  write(KEYS.sessionExpiresAt, sessionExpiresAt === null ? null : String(sessionExpiresAt))
+  useSettings.setState((state) => ({
+    sessionExpiresAt,
+    chatFeatures: sessionExpiresAt === state.sessionExpiresAt ? state.chatFeatures : null,
+  }))
 }
 
 export const setThinking = (thinking: boolean) => {

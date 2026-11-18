@@ -54,7 +54,9 @@ const readBlock = (value: unknown): OutputBlockStart | null => {
         !['search', 'deep_search', 'read_link', 'image_search', 'deep_image_search'].includes(
           value.kind as string
         ) ||
-        !['deepseek_web_search', 'deepseek_read_url'].includes(value.name as string) ||
+        !['deepseek_web_search', 'deepseek_read_url', 'firecrawl_search'].includes(
+          value.name as string
+        ) ||
         !isRecord(input)
       ) {
         return null

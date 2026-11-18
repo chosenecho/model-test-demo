@@ -200,8 +200,8 @@ const SearchRow = ({
   const count = step.results.length
   const clickable = !wip && count > 0
   const panelEntry = `${message.id}-search-${step.key}`
-  const failed = step.status === 'failed'
-  const interrupted = failed && !streaming && message.status === 'stopped'
+  const failed = step.status === 'failed' && step.errorCode !== 'no_results'
+  const interrupted = failed && !step.errorCode && !streaming && message.status === 'stopped'
 
   let body: ReactNode
   if (wip) {
@@ -219,14 +219,24 @@ const SearchRow = ({
   } else if (interrupted) {
     body = <span>{t('searchStopped')}</span>
   } else if (failed) {
-    body = <span>{t('toolSearchFail')}</span>
+    body = (
+      <span>
+        {t(
+          step.errorCode === 'quota_exhausted'
+            ? 'toolSearchQuotaExhausted'
+            : step.errorCode === 'tool_limit'
+              ? 'toolSearchLimitReached'
+              : 'toolSearchFail'
+        )}
+      </span>
+    )
   } else if (count === 0) {
     body = (
       <span>{t(isDeepSearchKind(step.kind) ? 'toolSearchNoResult' : 'messageSearchNoResult')}</span>
     )
   } else {
     const text = t(
-      isDeepSearchKind(step.kind)
+      step.isFirecrawl || isDeepSearchKind(step.kind)
         ? count === 1
           ? 'toolSearch1Result'
           : 'toolSearchResults'
@@ -242,19 +252,25 @@ const SearchRow = ({
       </>
     )
   }
-  return (
-    <div
-      className={clsx(
-        styles.row,
-        !isLast && styles.withLine,
-        clickable && styles.clickable,
-        entry === panelEntry && styles.active
-      )}
-      onClick={clickable ? () => toggleSearchPanel(panelEntry, step.results) : undefined}
+  const rowClass = clsx(styles.row, !isLast && styles.withLine)
+  const icon = (
+    <span className={styles.rowIcon} aria-hidden="true">
+      {failed ? <IconSearchWarningOutline16 /> : <IconSearchOutline16 />}
+    </span>
+  )
+  return clickable ? (
+    <button
+      type="button"
+      className={clsx(rowClass, styles.clickable, entry === panelEntry && styles.active)}
+      aria-expanded={entry === panelEntry}
+      onClick={() => toggleSearchPanel(panelEntry, step.results)}
     >
-      <span className={styles.rowIcon}>
-        {failed ? <IconSearchWarningOutline16 /> : <IconSearchOutline16 />}
-      </span>
+      {icon}
+      {body}
+    </button>
+  ) : (
+    <div className={rowClass} role={wip ? undefined : 'status'}>
+      {icon}
       {body}
     </div>
   )

@@ -140,6 +140,12 @@ export const AssistantMessage = memo(function AssistantMessage({
       ) : null}
       {streaming ? null : (
         <div className={styles.bottom}>
+          {message.skillVersion ? (
+            // 仅在 Worker 确认实际启用时展示，避免灰度关闭时误标。
+            <span className={styles.skill} title={message.skillVersion}>
+              {t('industryAnalyst')}
+            </span>
+          ) : null}
           <BranchSwitcher versions={versions} disabled={busy} onSelect={onSelectVersion} />
           <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
             {copyText ? <CopyButton text={copyText} /> : null}

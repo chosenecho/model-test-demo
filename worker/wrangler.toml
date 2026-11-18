@@ -19,9 +19,10 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 # 固定模型，所有用户统一（服务端强制覆盖，客户端不可自选）
 MODEL = "deepseek-flash"
 
-# 先部署关闭状态，试用时按需开启。非空名单限制为指定的用户 token_id。
-CHAT_INDUSTRY_ANALYST_ENABLED = "false"
-CHAT_FIRECRAWL_ENABLED = "false"
+# 试用发布状态：两个功能已对全部用户开放，页面开关仍默认关闭。
+# 非空名单限制为指定的用户 token_id；需要收回时把它改回 "false"。
+CHAT_INDUSTRY_ANALYST_ENABLED = "true"
+CHAT_FIRECRAWL_ENABLED = "true"
 CHAT_FEATURE_PREVIEW_USERS = ""
 
 # 额度系统：credits（默认）| count（旧每日次数）| off（只记录不拦）

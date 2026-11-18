@@ -43,6 +43,8 @@ export type SearchStep = {
   queries: string[]
   results: Source[]
   status: ToolStatus
+  isFirecrawl?: boolean
+  errorCode?: string
 }
 
 export type PageItem = {
@@ -197,7 +199,7 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
     if (result?.type === 'web_search_tool_result') {
       for (const item of result.content) {
         if (item.type === 'web_search_result') {
-          const source = registry.add(item.url, item.title, item.page_age, item)
+          const source = registry.add(item.url, item.title, item.page_age ?? null, item)
           if (!searchResults.includes(source)) {
             searchResults.push(source)
           }
@@ -273,16 +275,23 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
         result?.type === 'web_search_tool_result'
           ? result.content.flatMap((item) =>
               item.type === 'web_search_result'
-                ? [registry.add(item.url, item.title, item.page_age, item)]
+                ? [registry.add(item.url, item.title, item.page_age ?? null, item)]
                 : []
             )
           : []
-      // 普通搜索按种类聚合到首次出现的位置；边想边搜只合并相邻、同种类的调用。
-      const target = isDeepSearchKind(kind)
-        ? last?.type === 'search' && last.kind === kind
-          ? last
-          : null
-        : mergedSearch.get(kind)
+      const isFirecrawl = block.name === 'firecrawl_search'
+      const errorCode =
+        result?.type === 'web_search_tool_result'
+          ? result.content.find((item) => item.type === 'web_search_tool_result_error')?.error_code
+          : undefined
+      // Firecrawl 每次调用单独展示，避免混合成功与失败。旧版搜索沿用原有聚合方式。
+      const target = isFirecrawl
+        ? undefined
+        : isDeepSearchKind(kind)
+          ? last?.type === 'search' && last.kind === kind
+            ? last
+            : undefined
+          : mergedSearch.get(kind)
       if (target) {
         target.queries.push(...queries)
         target.results.push(...found.filter((source) => !target.results.includes(source)))
@@ -295,9 +304,11 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
           queries: [...queries],
           results: found,
           status,
+          isFirecrawl,
+          errorCode,
         }
         steps.push(step)
-        if (!isDeepSearchKind(kind)) {
+        if (!isFirecrawl && !isDeepSearchKind(kind)) {
           mergedSearch.set(kind, step)
         }
       }

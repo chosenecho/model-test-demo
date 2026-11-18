@@ -82,30 +82,69 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
-const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
-  // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  'x-api-key': apiKey,
-  // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
+/**
+ * 鉴权走同源会话 Cookie（HttpOnly，由 Worker 签发），浏览器侧不再持有可用 Token。
+ * Files API 和通过 file_id 引用图片时需带 anthropic-beta，纯文本聊天不带。
+ */
+const anthropicHeaders = (beta: boolean): Record<string, string> => ({
   ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
 })
 
 /**
- * 用邀请码调 POST /api/login，换取服务端签发的访问 Token（API Key 由 Worker 持有，浏览器不接触）。
- * 邀请码已使用时，携带原 Token（即使已过期）可换发新 Token，用于续签。
+ * 用邀请码调 POST /api/login 换取会话 Cookie（上游 API Key 由 Worker 持有，浏览器不接触）。
+ * 返回值只是会话到期时间，用来决定多久提示重新登录；凭证本身在 HttpOnly Cookie 里，前端读不到。
  */
-export const verifyApiKey = async (
-  code: string,
-  previousToken: string | null,
-  signal?: AbortSignal
-): Promise<string> => {
+export const login = async (code: string, signal?: AbortSignal): Promise<{ expiresAt: number }> => {
   const response = await request(`${API_ORIGIN}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(previousToken ? { code, token: previousToken } : { code }),
+    body: JSON.stringify({ code }),
+    credentials: 'same-origin',
     signal,
   })
-  const body = (await response.json()) as { token: string }
-  return body.token
+  return (await response.json()) as { expiresAt: number }
+}
+
+/** 退出：服务端撤销当前会话并清 Cookie，重复调用无副作用 */
+export const logout = async (): Promise<void> => {
+  await request(`${API_ORIGIN}/api/logout`, {
+    method: 'POST',
+    credentials: 'same-origin',
+  }).catch(() => undefined)
+}
+
+export type ChatFeatures = { industry_analyst: boolean; smart_search: boolean }
+
+/** 当前登录状态、额度与聊天功能可用性；401 表示没有有效会话。 */
+export type Me = {
+  quota: { available_micro: number; balance_micro: number; reserved_micro: number; period_end: number }
+  upstream_enabled: boolean
+  chat_features: ChatFeatures
+}
+export const me = async (signal?: AbortSignal): Promise<Me | null> => {
+  try {
+    const response = await request(`${API_ORIGIN}/api/me`, {
+      method: 'GET',
+      credentials: 'same-origin',
+      signal,
+    })
+    const data = (await response.json()) as Omit<Me, 'chat_features'> & {
+      chat_features?: Partial<ChatFeatures> | null
+    }
+    return {
+      ...data,
+      chat_features: {
+        industry_analyst: data.chat_features?.industry_analyst === true,
+        // 旧 Worker 未下发 chat_features，继续提供旧版搜索。
+        smart_search: data.chat_features === undefined || data.chat_features?.smart_search === true,
+      },
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) {
+      return null
+    }
+    throw e
+  }
 }
 
 /**
@@ -113,7 +152,6 @@ export const verifyApiKey = async (
  * purpose 为 null 时不传该字段（图片）；purpose 必须排在 file 之前。
  */
 export const uploadFile = async (
-  apiKey: string,
   file: File,
   purpose: FilePurpose | null,
   signal?: AbortSignal
@@ -125,18 +163,20 @@ export const uploadFile = async (
   form.append('file', file)
   const response = await request(`${ANTHROPIC_BASE_URL}/files`, {
     method: 'POST',
-    headers: anthropicHeaders(apiKey, true),
+    headers: anthropicHeaders(true),
     body: form,
+    credentials: 'same-origin',
     signal,
   })
   return (await response.json()) as FileObject
 }
 
 /** DELETE /anthropic/v1/files/{file_id} */
-export const deleteFile = async (apiKey: string, fileId: string): Promise<void> => {
+export const deleteFile = async (fileId: string): Promise<void> => {
   await request(`${ANTHROPIC_BASE_URL}/files/${encodeURIComponent(fileId)}`, {
     method: 'DELETE',
-    headers: anthropicHeaders(apiKey, true),
+    headers: anthropicHeaders(true),
+    credentials: 'same-origin',
   })
 }
 
@@ -152,23 +192,28 @@ const hasFile = (body: CreateMessageRequest) =>
  * ping、保活注释与无法解析的内容不产出；中止请求时抛出 signal 的 AbortError。
  */
 export async function* streamMessage(
-  apiKey: string,
   body: CreateMessageRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onSkillVersion?: (version: string) => void
 ): AsyncGenerator<MessageStreamEvent> {
   const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
     method: 'POST',
     headers: {
-      ...anthropicHeaders(apiKey, hasFile(body)),
+      ...anthropicHeaders(hasFile(body)),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
     body: JSON.stringify({ ...body, stream: true }),
+    credentials: 'same-origin',
     signal,
   })
   const contentType = response.headers.get('Content-Type') ?? ''
   if (!response.body || !contentType.includes('text/event-stream')) {
     throw await readErrorResponse(response, 'protocol', '')
+  }
+  const skillVersion = response.headers.get('x-skill-version')?.trim()
+  if (skillVersion) {
+    onSkillVersion?.(skillVersion)
   }
   for await (const { event: eventName, data } of readServerSentEvents(response.body, signal)) {
     let payload: unknown

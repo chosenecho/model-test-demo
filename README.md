@@ -12,7 +12,7 @@ Cloudflare Worker（https://aivmz.dpdns.org，单域名同源部署）
    │    fetch 同源 /anthropic/v1/*、/v1/tools/*、/models、/api/*
    ├─ /anthropic/v1/* 等透传：校验 HMAC Token → 注入 API Key → 强制覆盖 model
    ├─ 邀请码登录 → 签发 30 天 HMAC Token（支持过期续签）
-   └─ 每日配额（D1 计数，按 /anthropic/v1/messages 调用计）
+   └─ 额度（D1 钱包 + 流水，按 token 结算；限流 10 次/分）
    ▼
 DeepSeek API（Anthropic 兼容 Messages / Files / Tools 接口）
 ```
@@ -27,9 +27,15 @@ DeepSeek API（Anthropic 兼容 Messages / Files / Tools 接口）
 │   ├── wrangler.toml
 │   └── src/index.js
 ├── db/
-│   └── schema.sql      # D1 建表
+│   └── schema-v2.sql   # D1 建表（v2，11 张表）
 └── docs/
-    └── architecture.md
+    ├── architecture.md  # 组件与请求流
+    ├── database.md      # v2 表设计与取舍
+    ├── quota.md         # 额度系统设计（替代每日 20 次）
+    ├── quota-sop.md     # 额度系统运维 SOP
+    ├── risk-fixes.md    # 风险确认与修复计划
+    ├── change-sop.md    # 架构改动 SOP（A1–A4 的执行/回滚）
+    └── sop.md           # 部署 / 迁移 / 排障 SOP
 ```
 
 ### 对 chat-demo 的改动
@@ -43,7 +49,11 @@ DeepSeek API（Anthropic 兼容 Messages / Files / Tools 接口）
 
 旧版手写前端的 Skill（预设提示词下拉）暂无入口；`skills` 表和 `/api/skills` 接口保留，chat-demo 的「深度思考 / 智能搜索」开关直接透传 DeepSeek 服务端工具参数。
 
-## SOP（开发流程）
+## SOP
+
+**运维操作看 [`docs/sop.md`](docs/sop.md)**：部署、发布、数据库变更、邀请码、验收、排障、回滚、密钥轮换，全部是可复制执行的命令。
+
+开发阶段规划：
 
 1. **阶段 0**：仓库骨架
 2. **阶段 1**：前端工作台（现为 chat-demo 集成）
@@ -61,7 +71,7 @@ DeepSeek API（Anthropic 兼容 Messages / Files / Tools 接口）
 cd worker
 wrangler d1 create model-test-demo-db
 # 把返回的 database_id 填入 wrangler.toml
-wrangler d1 execute model-test-demo-db --file ../db/schema.sql --remote
+wrangler d1 execute model-test-demo-db --file ../db/schema-v2.sql --remote
 ```
 
 ### 2. 配置密钥
@@ -98,7 +108,8 @@ cd ../worker && wrangler dev           # http://localhost:8787，静态页面 + 
 
 - API Key 只存在于 Worker secret，前端永不接触
 - 模型由 Worker 统一配置，请求中的 model 字段会被覆盖
-- 每用户每日配额（默认 20 次/天），防刷
+- 按套餐额度计费（free 每月 6 额度 = 6,000,000 micro），余额与流水同事务写入，可对账
+- 限流 10 次/分（`RATE_LIMIT_PER_MIN`），额度不足 402、超频 429，两者前端提示分开
 - Token 为 HMAC 签名、带过期时间，无状态校验；过期后可凭原邀请码 + 旧 Token 续签
 
 ## License

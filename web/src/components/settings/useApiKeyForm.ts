@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { ApiError, verifyApiKey } from '../../services/api/client.js'
+import { ApiError, login } from '../../services/api/client.js'
 import { classifyApiError } from '../../services/api/errors.js'
-import { useSettings, setApiKey } from '../../services/settings.js'
+import { setSessionExpiresAt } from '../../services/settings.js'
+import { initChat, syncRemoteSessions } from '../../services/chat/store.js'
 import { useTranslate } from '../../i18n/index.js'
 
-/** 输入 API Key 后先用 GET /models 校验，通过才保存 */
+/** 提交邀请码换取会话 Cookie；前端只记到期时间，凭证不进 localStorage */
 export const useApiKeyForm = (onSaved?: () => void) => {
   const t = useTranslate()
   const [value, setValue] = useState('')
@@ -35,9 +36,11 @@ export const useApiKeyForm = (onSaved?: () => void) => {
     setVerifying(true)
     setFailure(null)
     try {
-      const token = await verifyApiKey(code, useSettings.getState().apiKey)
-      setApiKey(token)
+      const session = await login(code)
+      setSessionExpiresAt(session.expiresAt)
       setValue('')
+      // 登录后把这台设备本地的工作区和账号对齐（初始化已完成时也要补一次拉取）
+      void initChat().then(() => syncRemoteSessions()).catch(() => undefined)
       onSaved?.()
     } catch (e) {
       setFailure({ cause: e })

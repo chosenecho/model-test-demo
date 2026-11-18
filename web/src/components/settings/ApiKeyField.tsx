@@ -7,29 +7,30 @@ import { useApiKeyForm } from './useApiKeyForm.js'
 import { useTranslate } from '../../i18n/index.js'
 import styles from './Settings.module.css'
 
-/** API Key 的编辑状态：输入框与移动端底部的「确定」按钮共用 */
+/** 邀请码的编辑状态：输入框与移动端底部的「确定」按钮共用 */
 export const useApiKeyEditor = () => {
-  const apiKey = useSettings((state) => state.apiKey)
+  // Cookie 里读不到凭证，这里只用本地缓存的到期时间判断「是否已登录过」
+  const signedIn = useSettings((state) => state.sessionExpiresAt !== null)
   const [editing, setEditing] = useState(false)
   const form = useApiKeyForm(() => setEditing(false))
-  return { apiKey, editing, setEditing, form, showInput: !apiKey || editing }
+  return { signedIn, editing, setEditing, form, showInput: !signedIn || editing }
 }
 
 type ApiKeyEditor = ReturnType<typeof useApiKeyEditor>
 
-/** API Key：保存后只显示掩码，点编辑按钮才能重新输入 */
+/** 邀请码：登录后只显示占位文字，点编辑按钮才能换码 */
 export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
   const t = useTranslate()
   const isMobile = useIsMobile()
-  const { apiKey, editing, setEditing, form, showInput } = editor
+  const { signedIn, editing, setEditing, form, showInput } = editor
 
   return (
     <div className={styles.cell}>
       <div className={styles.apiKey}>
         <div className={styles.label}>{t('apiKeyStart')}</div>
-        {apiKey && !editing ? (
+        {signedIn && !editing ? (
           <div className={styles.apiKeySaved}>
-            <span className={styles.apiKeyMask}>{'*'.repeat(apiKey.length)}</span>
+            <span className={styles.apiKeyMask}>{t('apiKeySignedIn')}</span>
             <IconButton
               tone="primary"
               icon={<IconEditOutline16 />}
@@ -55,7 +56,7 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
               }}
               onBlur={() => {
                 // 修改时没输入就离开，回到已保存的状态
-                if (apiKey && !form.value.trim()) {
+                if (signedIn && !form.value.trim()) {
                   setEditing(false)
                 }
               }}
@@ -83,7 +84,7 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
   )
 }
 
-/** 移动端：输入 API Key 时在选项下方显示整行「确定」 */
+/** 移动端：输入邀请码时在选项下方显示整行「确定」 */
 export const ApiKeyConfirm = ({ editor: { showInput, form } }: { editor: ApiKeyEditor }) => {
   const t = useTranslate()
   return showInput && form.value.trim() ? (

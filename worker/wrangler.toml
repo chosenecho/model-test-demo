@@ -18,7 +18,26 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 # 固定模型，所有用户统一（服务端强制覆盖，客户端不可自选）
 MODEL = "deepseek-flash"
+
+# 先部署关闭状态，试用时按需开启。非空名单限制为指定的用户 token_id。
+CHAT_INDUSTRY_ANALYST_ENABLED = "false"
+CHAT_FIRECRAWL_ENABLED = "false"
+CHAT_FEATURE_PREVIEW_USERS = ""
+
+# 额度系统：credits（默认）| count（旧每日次数）| off（只记录不拦）
+QUOTA_MODE = "credits"
+# 每分钟请求上限（按 usage_requests 滑动窗口）
+RATE_LIMIT_PER_MIN = "10"
+# 上传/语音单独限流（与聊天分开计数，避免大文件挤占对话配额）
+UPLOAD_RATE_LIMIT_PER_MIN = "20"
+# 单文件上传上限（MB）；套餐里也有 max_upload_mb，这里是全局兜底
+MAX_UPLOAD_MB = "64"
+# 仅 QUOTA_MODE=count 时生效
 DAILY_QUOTA = "20"
+
+# 每日 00:10 UTC 跑周期发放 / 过期清零
+[triggers]
+crons = ["10 0 * * *"]
 
 [[d1_databases]]
 binding = "DB"

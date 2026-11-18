@@ -15,9 +15,10 @@ export const openSettings = (section: SettingsSection) =>
 
 export const closeSettings = () => useSettingsDialog.setState({ open: false })
 
-/** 没有 API Key 时打开设置并选中 API Key 所在的「数据管理」，返回是否已有 Key */
+/** 没有会话时打开设置并选中邀请码所在的「数据管理」，返回是否已登录 */
 export const ensureApiKey = () => {
-  if (useSettings.getState().apiKey) {
+  // 只做本地缓存判断，用来决定是否弹设置；真实有效性由服务端 401 决定
+  if (useSettings.getState().sessionExpiresAt) {
     return true
   }
   openSettings('data')

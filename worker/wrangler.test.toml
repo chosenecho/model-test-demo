@@ -1,0 +1,27 @@
+name = "model-test-demo-test"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/anthropic/*", "/v1/tools/*", "/models"]
+
+[vars]
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+MODEL = "deepseek-flash"
+CHAT_INDUSTRY_ANALYST_ENABLED = "false"
+CHAT_FIRECRAWL_ENABLED = "false"
+CHAT_FEATURE_PREVIEW_USERS = ""
+QUOTA_MODE = "credits"
+RATE_LIMIT_PER_MIN = "10"
+UPLOAD_RATE_LIMIT_PER_MIN = "20"
+MAX_UPLOAD_MB = "64"
+DAILY_QUOTA = "20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "model-test-demo-test-db"
+database_id = "d164ffca-81e7-417a-aa6a-9105c4c5e580"

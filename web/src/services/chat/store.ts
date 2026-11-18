@@ -31,6 +31,13 @@ import {
   type SessionSummary,
   type UserMessage,
 } from './types.js'
+import {
+  deleteRemoteSession,
+  flushPushes,
+  pullRemoteSessions,
+  renameRemoteSession,
+  schedulePush,
+} from './sync.js'
 
 /** deepseek-flash 同时支持深度思考与图片输入 */
 const MODEL: ChatModel = 'deepseek-flash'
@@ -71,6 +78,7 @@ type ChatState = {
   sessionSaveErrors: Record<string, boolean>
   /** null 表示新对话（欢迎页） */
   activeId: string | null
+  draftIndustryAnalyst: boolean
   /** 正在生成回复的会话 */
   streaming: Record<string, AbortController>
 }
@@ -84,6 +92,7 @@ export const useChatStore = create<ChatState>(() => ({
   sessionLoadErrors: {},
   sessionSaveErrors: {},
   activeId: null,
+  draftIndustryAnalyst: false,
   streaming: {},
 }))
 
@@ -206,6 +215,8 @@ const persist = (sessionId: string) => {
           }))
           trimSessionCache()
         }
+        // 本地落盘成功后再同步到服务端；失败不影响本地记录
+        schedulePush(session)
       })
       .catch((error: unknown) => {
         db.reportStorageError('save session')(error)
@@ -239,6 +250,7 @@ export const bindChatPersistence = () => {
         persist(id)
       }
     }
+    flushPushes()
   }
   const onVisibilityChange = () => {
     if (document.visibilityState === 'hidden') {
@@ -253,16 +265,18 @@ export const bindChatPersistence = () => {
   }
 }
 
-/** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
-const createReply = (): AssistantMessage => {
-  const { thinking, search } = useSettings.getState()
+/** 创建回复时快照当前开关和账号可用功能。 */
+const createReply = (sessionId: string): AssistantMessage => {
+  const { thinking, search, chatFeatures } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
     model: MODEL,
     thinking,
-    search,
+    search: chatFeatures?.smart_search === true && search,
+    industryAnalyst:
+      chatFeatures?.industry_analyst === true && getSession(sessionId)?.industryAnalyst === true,
     prefix: true,
     status: 'pending',
     blocks: [],
@@ -288,6 +302,39 @@ const settleInterrupted = (session: Session): Session => {
   }
 }
 
+/** 服务端拉回来的会话合并进列表；本地更新的条目已在 sync 里跳过 */
+const mergeRemoteSummaries = (summaries: SessionSummary[]) => {
+  if (summaries.length === 0) {
+    return
+  }
+  set((state) => {
+    const byId = new Map(state.sessions.map((session) => [session.id, session]))
+    for (const summary of summaries) {
+      byId.set(summary.id, summary)
+    }
+    const replaced = new Set(summaries.map((summary) => summary.id))
+    return {
+      sessions: sortSessions([...byId.values()]),
+      // 缓存里的旧快照作废，打开时重新从 IndexedDB 读
+      sessionCache: Object.fromEntries(
+        Object.entries(state.sessionCache).filter(([id]) => !replaced.has(id))
+      ),
+    }
+  })
+}
+
+/**
+ * 登录后重新对齐服务端会话：initChat 已完成时不会再拉一次，这里单独触发。
+ * 失败只由 sync 内部记控制台，不影响本地工作区可用。
+ */
+export const syncRemoteSessions = async (): Promise<void> => {
+  const epoch = historyEpoch
+  const remote = await pullRemoteSessions()
+  if (epoch === historyEpoch) {
+    mergeRemoteSummaries(remote)
+  }
+}
+
 export const initChat = (): Promise<void> => {
   if (get().ready) {
     return Promise.resolve()
@@ -302,6 +349,11 @@ export const initChat = (): Promise<void> => {
       const summaries = await db.loadSessionSummaries()
       if (epoch === historyEpoch) {
         set({ ready: true, sessions: sortSessions(summaries) })
+      }
+      // 本地就绪后再拉服务端副本，慢一点不影响首屏
+      const remote = await pullRemoteSessions()
+      if (epoch === historyEpoch) {
+        mergeRemoteSummaries(remote)
       }
     } catch (error) {
       if (epoch === historyEpoch) {
@@ -425,6 +477,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
       sessionLoadErrors: {},
       sessionSaveErrors: {},
       activeId: null,
+      draftIndustryAnalyst: false,
     })
     return summaries.length
   } finally {
@@ -440,9 +493,38 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
   }
 }
 
+export const setIndustryAnalyst = (sessionId: string | null, enabled: boolean) => {
+  if (get().importingHistory) {
+    return
+  }
+  if (sessionId === null) {
+    set({ draftIndustryAnalyst: enabled })
+    return
+  }
+  const session = getSession(sessionId)
+  if (!session) {
+    // 会话还没读进内存：读完再应用，避免这次点击被静默丢弃。
+    void ensureSessionLoaded(sessionId).then(() => {
+      if (getSession(sessionId)) {
+        setIndustryAnalyst(sessionId, enabled)
+      }
+    })
+    return
+  }
+  if (deletingSessions.has(sessionId) || (session.industryAnalyst === true) === enabled) {
+    return
+  }
+  updateSession(sessionId, (current) => ({
+    ...current,
+    industryAnalyst: enabled,
+    updatedAt: Math.max(Date.now(), current.updatedAt + 1),
+  }))
+  persist(sessionId)
+}
+
 export const newChat = () => {
   if (!get().importingHistory) {
-    set({ activeId: null })
+    set({ activeId: null, draftIndustryAnalyst: false })
     trimSessionCache()
   }
 }
@@ -474,6 +556,7 @@ export const renameSession = (id: string, title: string) => {
       ),
     }))
     void db.renameSession(id, title).catch(db.reportStorageError('rename session'))
+    void renameRemoteSession(id, title)
   }
 }
 
@@ -504,6 +587,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
     if (epoch !== historyEpoch) {
       return true
     }
+    void deleteRemoteSession(id)
     sessionLoads.delete(id)
     sessionAccess.delete(id)
     unsavedSessions.delete(id)
@@ -569,6 +653,7 @@ export const sendMessage = (targetSessionId: string | null) => {
       createdAt: now,
       updatedAt: now,
       messages: [],
+      industryAnalyst: get().draftIndustryAnalyst,
       rootMessageId: null,
     }
     sessionId = session.id
@@ -577,6 +662,7 @@ export const sendMessage = (targetSessionId: string | null) => {
       sessions: [toSessionSummary(session), ...state.sessions],
       sessionCache: { ...state.sessionCache, [session.id]: session },
       activeId: session.id,
+      draftIndustryAnalyst: false,
     }))
   }
   const current = getSession(sessionId)
@@ -598,7 +684,7 @@ export const sendMessage = (targetSessionId: string | null) => {
     })),
     createdAt: now,
   }
-  const reply = createReply()
+  const reply = createReply(sessionId)
   updateSession(sessionId, (session) => ({
     ...appendBranch(session, history.at(-1)?.id ?? null, [question, reply]),
     updatedAt: now,
@@ -632,7 +718,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
     return
   }
   const history = path.slice(0, index - 1)
-  const reply = createReply()
+  const reply = createReply(sessionId)
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, question.id, [reply]),
     updatedAt: Date.now(),
@@ -664,7 +750,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     files: previous.files,
     createdAt: Date.now(),
   }
-  const reply = createReply()
+  const reply = createReply(sessionId)
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, path[index - 1]?.id ?? null, [question, reply]),
     updatedAt: Date.now(),
@@ -712,6 +798,7 @@ export const continueReply = (sessionId: string, messageId: string) => {
     model: previous.model ?? MODEL,
     thinking: previous.thinking ?? thinking,
     search: previous.search ?? search,
+    industryAnalyst: previous.industryAnalyst === true,
     status: 'pending',
     stopReason: undefined,
     stopDetails: undefined,
@@ -776,7 +863,7 @@ const saveServerIds = (sessionId: string, serverIds: Map<string, string>) => {
  * 附件的服务端 id：已有直接用；正在上传的等待同一任务；否则读取本地原件补传。
  * 本地也没有原件（导入的文档附件只有元数据）时返回 null，该附件只展示、不进入请求。
  */
-const ensureServerId = async (apiKey: string, file: FileAttachment): Promise<string | null> => {
+const ensureServerId = async (file: FileAttachment): Promise<string | null> => {
   if (file.serverId) {
     return file.serverId
   }
@@ -788,7 +875,7 @@ const ensureServerId = async (apiKey: string, file: FileAttachment): Promise<str
   if (!blob) {
     return null
   }
-  return uploadAttachment(apiKey, file.id, blob, file.name, file.isImage)
+  return uploadAttachment(file.id, blob, file.name, file.isImage)
 }
 
 /** 用会话里的最新消息替换请求快照：重传前会重置附件的 serverId，快照必须跟着更新 */
@@ -818,7 +905,6 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
-  const apiKey = useSettings.getState().apiKey ?? ''
   const serverIds = new Map<string, string>()
   // 停止生成立即生效；上传本身不取消（输入框与其他消息可能共用同一任务），完成后照常写回 serverId
   const aborted = new Promise<never>((_, reject) => {
@@ -826,7 +912,7 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   })
   const uploads = Promise.allSettled(
     request.question.files.map(async (file) => {
-      const serverId = await ensureServerId(apiKey, file)
+      const serverId = await ensureServerId(file)
       if (serverId) {
         serverIds.set(file.id, serverId)
       }
@@ -854,7 +940,7 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   for (const file of pending.values()) {
     signal.throwIfAborted()
     try {
-      const serverId = await Promise.race([ensureServerId(apiKey, file), aborted])
+      const serverId = await Promise.race([ensureServerId(file), aborted])
       if (serverId) {
         serverIds.set(file.id, serverId)
         saveServerIds(sessionId, new Map([[file.id, serverId]]))
@@ -997,17 +1083,24 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           latestReminder
         )
         const events = streamMessage(
-          useSettings.getState().apiKey ?? '',
           {
             model: initial.model ?? MODEL,
             system: SYSTEM_PROMPT,
             messages,
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,
+            // 兼容旧 Worker；开启新链路的 Worker 将组装自己的工具。
             tools: serverTools(initial.search ?? false),
+            industry_analyst: initial.industryAnalyst === true,
+            smart_search: initial.search === true,
             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
           },
-          controller.signal
+          controller.signal,
+          (skillVersion) => {
+            reply = { ...reply, skillVersion }
+            updateReply(sessionId, reply)
+            persist(sessionId)
+          }
         )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {

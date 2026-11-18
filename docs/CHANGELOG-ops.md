@@ -10,7 +10,7 @@
 - 迁移：[db/firecrawl-peruser.sql](../db/firecrawl-peruser.sql) 给 `firecrawl_search_attempts` 加 `user_id` 列和 `(user_id, hk_day)` 索引，生产和测试库各执行一次（2 条语句）。迁移前遗留的计数行 `user_id` 为空，不再计入任何用户，生产上有 2 行。
 - 代码：[firecrawl.js](../worker/src/firecrawl.js) 按 `user_id` 做原子预占与释放，`searchFirecrawl` 从 Worker 接收当前登录用户；缺少有效用户标识时直接跳过搜索。
 - 测试：新增「用户 A 满额不影响用户 B」用例，`worker/.smoke` 共 21 项通过；workerd 运行时用例改为只把主账号顶到上限，验证 A 收到额度提示、B 仍能搜索。
-- 验收：生产版本 `ff7ae66d-6f34-4764-885f-fd13874cd14f`，用临时账号跑真实检索，一轮两次检索、4 个来源、用量 `settled`、扣费流水 1 行，计数记在该账号名下。验收会话已注销、邀请码已过期。
+- 验收：先以 `ff7ae66d-6f34-4764-885f-fd13874cd14f` 验证，随后从合并后的 `main`（`755ca81`）重新部署为 `f72e8840-6c96-45a0-8ba0-918e333debd7`。用临时账号跑真实检索，一轮两次检索、4 个来源、用量 `settled`、扣费流水 1 行，计数记在该账号名下。验收会话已注销、邀请码已过期。
 
 ---
 

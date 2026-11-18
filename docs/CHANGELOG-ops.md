@@ -12,6 +12,7 @@
 - 生产站写入 `FIRECRAWL_API_KEY`，部署 `b9cf8bf1-20c4-43bf-8041-327fdc6165c1`（两个开关关闭）作为回滚基线。对验收账号启用后 `prod-live-4a8fbc759eec`：两次检索、来源可追溯、无密钥，用量 `settled|1279|798|200`，额度流水 1 行，版本 `4cdb79f9-8129-4793-82d8-8f9e144d113c`。
 - 试用发布：`8deadad0-2e69-4dfe-9f06-b8dfd9c24fe8` 对全部用户开放两个功能，开关仍在页面上默认关闭。新账号复核 `chat_features {industry_analyst:true, smart_search:true}`，普通对话仍返回 200 且不触发搜索。临时邀请码已过期，验收会话已注销。
 - 搜索额度维持全站共享每日 200 次、按香港日期切分。该密钥在本会话出现过明文，建议在 Firecrawl 控制台轮换后重写 Secret。
+- 代码经 [PR #1](https://github.com/chosenecho/model-test-demo/pull/1) 合并到 `main`（`37284c8`）。由合并后的 `main` 重新部署生产版本 `d0b57492-92f9-4f14-990c-8327fd7e7db6`，开关状态同时写入 `wrangler.toml`（`ce8b986`），避免普通部署把功能关掉。部署后复核：首页 200、未登录 401、新账号 `chat_features` 两项为真。
 
 ---
 

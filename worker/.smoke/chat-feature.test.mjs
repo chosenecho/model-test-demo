@@ -63,7 +63,14 @@ function model(payload, tool = false, preamble = '') {
     { type: 'content_block_start', index, content_block: block },
     ...(tool ? ['{"query":', '"公开资料"}'].map((partial_json) => ({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json } })) : []),
     { type: 'content_block_stop', index },
-    { type: 'message_delta', delta: { stop_reason: tool ? 'tool_use' : 'end_turn' }, usage: { input_tokens: 20, output_tokens: 7 } },
+    {
+      type: 'message_delta',
+      delta: {
+        stop_reason: tool ? 'tool_use' : 'end_turn',
+        ...(!tool && payload.title?.enabled === true ? { title: '公开资料检索' } : {}),
+      },
+      usage: { input_tokens: 20, output_tokens: 7 },
+    },
     { type: 'message_stop' },
   ];
   return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
@@ -114,17 +121,19 @@ test('authenticated Worker search, Skill, and duplicate settlement', async (t) =
   assert.deepEqual((await account({ ...env, CHAT_FEATURE_PREVIEW_USERS: 'other-account' })).chat_features,
     { industry_analyst: false, smart_search: false });
   assert.equal((await chat('invalid-flag', { smart_search: 1 })).status, 400);
-  const response = await chat('research-1', { smart_search: true, industry_analyst: true });
+  const response = await chat('research-1', { smart_search: true, industry_analyst: true, title: { enabled: true } });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('x-skill-version'), 'industry-analyst@1');
   const stream = await response.text();
   await Promise.all(jobs);
   assert.equal(searches, 1);
   assert.equal(models.length, 2);
+  assert.deepEqual(models.map(({ title }) => title), [{ enabled: true }, { enabled: true }]);
   assert.match(models[0].system, /行业分析师/);
   assert.deepEqual(models[0].tools.map((tool) => tool.name), ['firecrawl_search']);
   assert.deepEqual(models[1].messages.at(-1).content.filter((block) => block.type === 'tool_result').map((result) => result.tool_use_id), ['tool-search-1']);
   assert.match(stream, /web_search_tool_result/);
+  assert.match(stream, /"title":"公开资料检索"/);
   assert.match(stream, /https:\/\/example.com\/reference/);
   assert.ok(!stream.includes(env.FIRECRAWL_API_KEY) && !stream.includes('signature=discard'));
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM quota_ledger WHERE request_id = ?').get('research-1').n, 1);
@@ -133,10 +142,22 @@ test('authenticated Worker search, Skill, and duplicate settlement', async (t) =
   assert.equal((await chat('research-1', { smart_search: true })).status, 409);
   assert.equal(searches, 1);
   assert.equal(models.length, 2);
-  const ordinary = await chat('ordinary-1', {});
+  const ordinary = await chat('ordinary-1', { title: { enabled: true } });
   assert.equal(ordinary.status, 200);
   assert.equal(ordinary.headers.get('x-skill-version'), null);
-  assert.match(await ordinary.text(), /message_stop/);
+  const ordinaryStream = await ordinary.text();
+  assert.match(ordinaryStream, /message_stop/);
+  assert.match(ordinaryStream, /"title":"公开资料检索"/);
+  for (const [state, flags] of [
+    ['absent', {}],
+    ['disabled', { title: { enabled: false } }],
+    ['invalid', { title: { enabled: 'true' } }],
+  ]) {
+    const withoutTitle = await chat(`title-${state}`, flags);
+    assert.equal(withoutTitle.status, 200);
+    assert.doesNotMatch(await withoutTitle.text(), /"title":/);
+    assert.equal(models.at(-1).title, undefined);
+  }
   await Promise.all(jobs);
   assert.doesNotMatch(models[2].system, /行业分析师|untrusted instructions/);
   assert.equal(searches, 1);

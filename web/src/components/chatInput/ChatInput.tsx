@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import {
-  IconDataOutline16,
   IconGlobeLanguageOutline14,
   IconPaperclipOutline16,
   IconSendOutline16,
@@ -10,7 +9,7 @@ import {
 } from '../base/icons.js'
 import { setSearch, setThinking, useSettings } from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
-import { sendMessage, setIndustryAnalyst, stopReply, useChatStore } from '../../services/chat/store.js'
+import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
   addDraftFiles,
   EMPTY_DRAFT,
@@ -55,10 +54,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
   const showSearch = useSettings((state) => state.chatFeatures?.smart_search === true)
-  const showIndustryAnalyst = useSettings((state) => state.chatFeatures?.industry_analyst === true)
-  const industryAnalyst = useChatStore((state) =>
-    sessionId === null ? state.draftIndustryAnalyst : state.sessionCache[sessionId]?.industryAnalyst === true
-  )
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
@@ -78,7 +73,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     const observer = new ResizeObserver(updateLabels)
     observer.observe(toggles)
     return () => observer.disconnect()
-  }, [t, showSearch, showIndustryAnalyst])
+  }, [t, showSearch])
 
   const acceptFiles = (files: File[]) => {
     if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
@@ -206,7 +201,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       <div className={styles.functionRow}>
-        {/* 深度思考 / 智能搜索 / 行业分析师开关，tooltip 在按钮上方 */}
+        {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
         <div ref={togglesRef} className={styles.toggles}>
           <Tooltip content={t('deactivatedThinkTooltip')}>
             <button
@@ -231,21 +226,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               >
                 <IconGlobeLanguageOutline14 />
                 <span className={styles.toggleLabel}>{t('search')}</span>
-              </button>
-            </Tooltip>
-          ) : null}
-          {showIndustryAnalyst ? (
-            <Tooltip content={t('industryAnalystTooltip')}>
-              <button
-                type="button"
-                className={clsx(styles.toggle, industryAnalyst && styles.selected)}
-                aria-label={t('industryAnalyst')}
-                aria-pressed={industryAnalyst}
-                disabled={importingHistory}
-                onClick={() => setIndustryAnalyst(sessionId, !industryAnalyst)}
-              >
-                <IconDataOutline16 />
-                <span className={styles.toggleLabel}>{t('industryAnalyst')}</span>
               </button>
             </Tooltip>
           ) : null}

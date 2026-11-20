@@ -30,19 +30,20 @@ export const FallbackImage = memo(function FallbackImage({
   )
 
   return (
-    <div className={className} style={style}>
+    <span className={className} style={style} aria-hidden="true">
       {loadResult !== 'error' ? (
         <img
           src={src}
           alt=""
+          referrerPolicy="no-referrer"
           onLoad={() => setLoadResult('loaded')}
           onError={() => setLoadResult('error')}
           style={{ display: loadResult === 'loaded' ? 'block' : 'none' }}
           className={imgClassName}
         />
       ) : null}
-      {loadResult === 'error' ? <div className={fallbackClassName}>{fallback}</div> : null}
-      {loadResult === 'loading' ? <div className={skeletonClassName} /> : null}
-    </div>
+      {loadResult === 'error' ? <span className={fallbackClassName}>{fallback}</span> : null}
+      {loadResult === 'loading' ? <span className={skeletonClassName} /> : null}
+    </span>
   )
 })

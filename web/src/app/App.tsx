@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import clsx from 'clsx'
 import { useTranslate } from '../i18n/index.js'
 import { me } from '../services/api/client.js'
-import { setSessionExpiresAt, useSettings } from '../services/settings.js'
+import { setSessionExpiresAt, setSiderCollapsed, useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
 import {
   bindChatPersistence,
@@ -25,6 +26,7 @@ import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { SessionSearch } from '../components/sider/SessionSearch.js'
 import styles from './App.module.css'
 
 export const App = () => {
@@ -51,6 +53,22 @@ export const App = () => {
     state.activeId === null ? false : Object.hasOwn(state.streaming, state.activeId)
   )
   const activeId = useChatStore((state) => state.activeId)
+  const sessionSearchRef = useRef<HTMLDialogElement>(null)
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false)
+  const openSessionSearch = (event: MouseEvent<HTMLButtonElement>) => {
+    event.currentTarget.focus({ preventScroll: true })
+    sessionSearchRef.current?.showModal()
+    setSessionSearchOpen(true)
+  }
+  const toggleSider = (collapsed: boolean) => {
+    setSiderCollapsed(collapsed)
+    requestAnimationFrame(() => {
+      const toggle = document.getElementById(
+        collapsed ? 'expand-desktop-sider' : 'collapse-desktop-sider'
+      )
+      toggle?.focus({ preventScroll: true })
+    })
+  }
 
   usePreventPageScroll(isMobile)
 
@@ -75,7 +93,10 @@ export const App = () => {
       refreshing = true
       try {
         const current = await me(controller.signal)
-        if (controller.signal.aborted || useSettings.getState().sessionExpiresAt !== sessionExpiresAt) {
+        if (
+          controller.signal.aborted ||
+          useSettings.getState().sessionExpiresAt !== sessionExpiresAt
+        ) {
           return
         }
         if (current) {
@@ -113,7 +134,18 @@ export const App = () => {
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
-        {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
+        {isMobile ? (
+          <MobileSider onSearch={openSessionSearch} />
+        ) : (
+          <div
+            className={clsx(styles.desktopSider, siderCollapsed && styles.desktopSiderCollapsed)}
+            {...(siderCollapsed ? { inert: '' } : {})}
+          >
+            <div className={styles.desktopSiderContent}>
+              <Sider onSearch={openSessionSearch} onCollapse={() => toggleSider(true)} />
+            </div>
+          </div>
+        )}
         <main className={styles.main}>
           {saveError ? (
             <div className={styles.saveError} role="alert">
@@ -129,7 +161,13 @@ export const App = () => {
             </div>
           ) : null}
           <div className={styles.content}>
-            {siderCollapsed ? <CollapsedSider /> : null}
+            {!isMobile ? (
+              <CollapsedSider
+                visible={siderCollapsed}
+                onSearch={openSessionSearch}
+                onExpand={() => toggleSider(false)}
+              />
+            ) : null}
             {!ready || (activeId !== null && !session) ? (
               <div className={styles.loadingView}>
                 {isMobile ? <MobileHeader /> : null}
@@ -168,6 +206,11 @@ export const App = () => {
           </div>
         </main>
         <SearchPanel />
+        <SessionSearch
+          dialogRef={sessionSearchRef}
+          open={sessionSearchOpen}
+          onClose={() => setSessionSearchOpen(false)}
+        />
       </div>
       <SettingsDialog />
       <Toast />

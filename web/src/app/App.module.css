@@ -1,9 +1,51 @@
 .frame {
+  --desktop-sider-width: 261px;
+  --desktop-sider-duration: 300ms;
+  --desktop-sider-easing: cubic-bezier(0.4, 0, 0.2, 1);
   position: absolute;
   inset: 0;
   display: flex;
   overflow: hidden;
   background-color: var(--dsw-alias-bg-base);
+}
+
+.desktopSider {
+  flex: 0 0 auto;
+  width: var(--desktop-sider-width, 261px);
+  overflow: clip;
+}
+
+.desktopSiderContent {
+  width: var(--desktop-sider-width);
+  height: 100%;
+}
+
+.desktopSiderCollapsed {
+  width: 0;
+  visibility: hidden;
+
+  .desktopSiderContent {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .desktopSider {
+    transition:
+      width var(--desktop-sider-duration) var(--desktop-sider-easing),
+      visibility 0s;
+  }
+
+  .desktopSiderCollapsed {
+    transition-delay: 0s, var(--desktop-sider-duration);
+  }
+
+  .desktopSiderContent {
+    transition:
+      transform var(--desktop-sider-duration) var(--desktop-sider-easing),
+      opacity var(--desktop-sider-duration) var(--desktop-sider-easing);
+  }
 }
 
 .main {

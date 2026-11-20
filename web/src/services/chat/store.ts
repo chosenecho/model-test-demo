@@ -66,6 +66,8 @@ const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
 /** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。 */
 const titleRequests = new Set<AbortController>()
 
+type MessageLocation = { sessionId: string; messageId: string }
+
 type ChatState = {
   ready: boolean
   initError: boolean
@@ -77,6 +79,7 @@ type ChatState = {
   sessionLoadErrors: Record<string, boolean>
   sessionSaveErrors: Record<string, boolean>
   /** null 表示新对话（欢迎页） */
+  messageLocation: MessageLocation | null
   activeId: string | null
   draftIndustryAnalyst: boolean
   /** 正在生成回复的会话 */
@@ -91,6 +94,7 @@ export const useChatStore = create<ChatState>(() => ({
   sessionCache: {},
   sessionLoadErrors: {},
   sessionSaveErrors: {},
+  messageLocation: null,
   activeId: null,
   draftIndustryAnalyst: false,
   streaming: {},
@@ -445,7 +449,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
   if (get().importingHistory) {
     throw new Error('History replacement is already in progress')
   }
-  set({ importingHistory: true })
+  set({ importingHistory: true, messageLocation: null })
   try {
     for (const controller of Object.values(get().streaming)) {
       controller.abort()
@@ -524,17 +528,45 @@ export const setIndustryAnalyst = (sessionId: string | null, enabled: boolean) =
 
 export const newChat = () => {
   if (!get().importingHistory) {
-    set({ activeId: null, draftIndustryAnalyst: false })
+    set({ activeId: null, draftIndustryAnalyst: false, messageLocation: null })
     trimSessionCache()
   }
 }
 
-export const selectSession = (id: string) => {
-  if (!get().importingHistory && get().sessions.some((session) => session.id === id)) {
-    touchSession(id)
-    set({ activeId: id })
-    void ensureSessionLoaded(id)
-    trimSessionCache()
+export const selectSession = (id: string, messageId?: string) => {
+  if (
+    get().importingHistory ||
+    deletingSessions.has(id) ||
+    !get().sessions.some((session) => session.id === id)
+  ) {
+    return false
+  }
+  touchSession(id)
+  set({
+    activeId: id,
+    messageLocation: messageId === undefined ? null : { sessionId: id, messageId },
+  })
+  void ensureSessionLoaded(id)
+  trimSessionCache()
+  return true
+}
+
+export const loadSessionForSearch = async (id: string) => {
+  const epoch = historyEpoch
+  if (
+    get().importingHistory ||
+    deletingSessions.has(id) ||
+    !get().sessions.some((item) => item.id === id)
+  ) {
+    return false
+  }
+  await ensureSessionLoaded(id)
+  return epoch === historyEpoch && Boolean(getSession(id))
+}
+
+export const clearMessageLocation = (location: MessageLocation) => {
+  if (get().messageLocation === location) {
+    set({ messageLocation: null })
   }
 }
 
@@ -605,6 +637,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
         Object.entries(state.sessionSaveErrors).filter(([key]) => key !== id)
       ),
       activeId: state.activeId === id ? null : state.activeId,
+      messageLocation: state.messageLocation?.sessionId === id ? null : state.messageLocation,
     }))
     return true
   } catch (error) {
@@ -662,6 +695,7 @@ export const sendMessage = (targetSessionId: string | null) => {
       sessions: [toSessionSummary(session), ...state.sessions],
       sessionCache: { ...state.sessionCache, [session.id]: session },
       activeId: session.id,
+      messageLocation: null,
       draftIndustryAnalyst: false,
     }))
   }

@@ -148,4 +148,9 @@
     background-color: var(--dsw-alias-interactive-bg-hover);
     --search-row-site-logo-color: var(--dsw-alias-interactive-bg-hover);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--dsw-alias-label-primary);
+    outline-offset: 2px;
+  }
 }

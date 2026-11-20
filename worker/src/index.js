@@ -841,6 +841,7 @@ function sanitizeMessageBody(env, body, config, maxInputTokens) {
   out.model = env.MODEL;
   out.stream = true;
   out.system = config.system;
+  if (body.title?.enabled === true) out.title = { enabled: true };
   out.max_tokens = Math.max(1, Math.floor(boundRequest(out).maxTokens));
   // 只有 Worker 声明工具，普通对话保留现有的链接阅读。
   out.tools = config.search

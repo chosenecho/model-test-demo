@@ -3,7 +3,7 @@
   flex-direction: column;
   flex-shrink: 0;
   box-sizing: border-box;
-  width: 261px;
+  width: var(--desktop-sider-width, 261px);
   height: 100%;
   padding: 6px 12px 0;
   border-right: 1px solid var(--dsw-alias-border-l1);
@@ -20,6 +20,12 @@
   margin-bottom: 16px;
   padding: 15px 0 10px 4px;
   flex-shrink: 0;
+}
+
+.topActions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
 }
 
 .appName {
@@ -177,6 +183,23 @@
   align-items: center;
   gap: 16px;
   margin: 12px 0 0 16px;
+}
+
+.collapsed[data-visible='false'] {
+  opacity: 0;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .collapsed {
+    transition:
+      opacity 200ms var(--desktop-sider-easing),
+      visibility 0s;
+  }
+
+  .collapsed[data-visible='false'] {
+    transition-delay: 0s, 200ms;
+  }
 }
 
 .collapsedGroup {

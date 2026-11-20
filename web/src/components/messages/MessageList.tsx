@@ -5,7 +5,13 @@ import {
   getVisibleMessages,
   type MessageVersions,
 } from '../../services/chat/branches.js'
-import { selectMessageVersion } from '../../services/chat/store.js'
+import { useTranslate } from '../../i18n/index.js'
+import {
+  clearMessageLocation,
+  selectMessageVersion,
+  useChatStore,
+} from '../../services/chat/store.js'
+import { showToast } from '../base/toastState.js'
 import type { Session } from '../../services/chat/types.js'
 import { closeSearchPanel } from '../search/searchPanelState.js'
 import { AssistantMessage } from './AssistantMessage.js'
@@ -43,6 +49,8 @@ export const MessageList = ({
   footer: React.ReactNode
 }) => {
   const isMobile = useIsMobile()
+  const t = useTranslate()
+  const location = useChatStore((state) => state.messageLocation)
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const stickyRef = useRef(true)
@@ -95,9 +103,31 @@ export const MessageList = ({
       restoreScrollRef.current = null
       return
     }
-    stickyRef.current = true
-    scrollToBottom()
+    if (useChatStore.getState().messageLocation?.sessionId !== session.id) {
+      stickyRef.current = true
+      scrollToBottom()
+    }
   }, [session.id, lastMessageId, scrollToBottom])
+
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current
+    if (!scroll || location?.sessionId !== session.id) {
+      return
+    }
+    const target = scroll.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(location.messageId)}"]`
+    )
+    stickyRef.current = false
+    if (target) {
+      target.focus({ preventScroll: true })
+      scroll.scrollTop +=
+        target.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 16
+      scrollTopRef.current = scroll.scrollTop
+    } else {
+      showToast(t('searchMessageMissing'))
+    }
+    clearMessageLocation(location)
+  }, [location, session.id, t])
 
   useEffect(closeSearchPanel, [session.id, lastMessageId])
 

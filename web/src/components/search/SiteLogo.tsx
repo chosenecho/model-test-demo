@@ -5,6 +5,20 @@ import { IconLinkOutline14 } from '../base/icons.js'
 import type { Source } from '../../services/chat/view.js'
 import styles from './SiteLogo.module.css'
 
+const getIconUrl = (value: string | null) => {
+  if (!value) {
+    return ''
+  }
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password
+      ? url.href
+      : ''
+  } catch {
+    return ''
+  }
+}
+
 /** 站点图标：加载中显示骨架，没有图标或加载失败时显示链接图标 */
 export const SiteLogo = ({
   url,
@@ -14,18 +28,21 @@ export const SiteLogo = ({
   url: string | null
   className?: string
   style?: CSSProperties
-}) => (
-  <FallbackImage
-    key={url ?? ''}
-    src={url ?? ''}
-    fallback={<IconLinkOutline14 />}
-    className={clsx(styles.logo, className)}
-    imgClassName={styles.img}
-    skeletonClassName={styles.placeholder}
-    fallbackClassName={clsx(styles.placeholder, styles.fallback)}
-    style={style}
-  />
-)
+}) => {
+  const src = getIconUrl(url)
+  return (
+    <FallbackImage
+      key={src}
+      src={src}
+      fallback={<IconLinkOutline14 />}
+      className={clsx(styles.logo, className)}
+      imgClassName={styles.img}
+      skeletonClassName={styles.placeholder}
+      fallbackClassName={clsx(styles.placeholder, styles.fallback)}
+      style={style}
+    />
+  )
+}
 
 /** 搜索结果前 4 个站点的重叠缩略图 */
 export const SiteThumbnails = ({ sources }: { sources: Source[] }) => (

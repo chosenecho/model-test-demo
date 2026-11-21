@@ -168,11 +168,6 @@
   }
 
   @supports selector(:has(:focus-visible)) {
-    .searchRow:has(.input:focus-visible) {
-      outline: 1px solid var(--dsw-alias-label-secondary);
-      outline-offset: 2px;
-    }
-
     .input:focus-visible {
       outline: none;
     }

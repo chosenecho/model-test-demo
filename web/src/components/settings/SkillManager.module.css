@@ -1,0 +1,83 @@
+.manager {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-block: 10px 20px;
+}
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-block: 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+.summary {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.summary p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+}
+.control {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.control input {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 30px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #74747e;
+  cursor: inherit;
+}
+.control input::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #161719;
+}
+.control input:checked {
+  background: #35aa7d;
+}
+.control input:checked::before {
+  transform: translateX(18px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .control input {
+    transition: background-color 160ms ease;
+  }
+  .control input::before {
+    transition: transform 160ms ease;
+  }
+}
+.control:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+.control input:focus-visible {
+  outline: 2px solid var(--dsw-alias-button-primary-fill);
+  outline-offset: 3px;
+}

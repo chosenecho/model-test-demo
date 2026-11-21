@@ -30,17 +30,17 @@ export const CollapsedSider = ({
         <IconButton
           size="m"
           tone="primary"
-          icon={<NewChatIcon />}
-          tooltip={t('newChat')}
-          onClick={newChat}
-        />
-        <IconButton
-          size="m"
-          tone="primary"
           icon={<IconSearchOutline16 />}
           tooltip={t('searchSessions')}
           aria-haspopup="dialog"
           onClick={onSearch}
+        />
+        <IconButton
+          size="m"
+          tone="primary"
+          icon={<NewChatIcon />}
+          tooltip={t('newChat')}
+          onClick={newChat}
         />
       </div>
     </div>

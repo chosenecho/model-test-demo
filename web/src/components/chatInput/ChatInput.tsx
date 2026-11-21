@@ -53,7 +53,12 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
-  const showSearch = useSettings((state) => state.chatFeatures?.smart_search === true)
+  // 离线文件预览没有账号功能接口，仅展示入口；发送时仍按服务端功能配置判断。
+  const showSearch = useSettings(
+    (state) =>
+      state.chatFeatures?.smart_search === true ||
+      (state.chatFeatures === null && window.location.protocol === 'file:')
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)

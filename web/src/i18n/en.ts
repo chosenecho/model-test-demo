@@ -21,6 +21,18 @@ export const en = {
     'Chats or attachments have not been saved locally. Retry before closing this page.',
   sessionDeleteFailed: 'Unable to delete this chat. Please try again.',
   settings: 'Settings',
+  skillManagement: 'Skill management',
+  skillServerHint:
+    'Skills are provided and maintained by the project. Toggle them for the current chat here.',
+  skillAnalystDescription:
+    'Organize insights, evidence and conclusions using an industry analysis framework, highlighting key uncertainties.',
+  skillSessionHint:
+    'Applies to this chat starting with the next message. New chats default to off.',
+  skillEnabled: 'On',
+  skillDisabled: 'Off',
+  skillUnavailable: 'This skill is not enabled for your account.',
+  skillNeedsAccount:
+    'Toggle to try the offline preview. Actual use is controlled by server-side account permissions.',
   appName: 'API usage demo',
   deleteSessionModalContentTitle: 'Delete chat?',
   deleteSessionWithFilesDescription:
